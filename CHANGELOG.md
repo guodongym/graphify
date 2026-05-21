@@ -2,6 +2,10 @@
 
 Full release notes with details on each version: [GitHub Releases](https://github.com/safishamsi/graphify/releases)
 
+## 0.8.14+hanhai.0.1 (2026-05-21)
+
+- Internal Hanhai build: add deterministic `.tab` structured extraction with UTF-8/GB18030 decoding, schema-agnostic row nodes, bounded value nodes, path-reference edges, and watch/update coverage.
+
 ## 0.8.14 (2026-05-20)
 
 - Fix: `--wiki` crash when community node IDs are stale after dedup or re-extract — stale IDs are now silently dropped with a stderr warning; raises a clear error only if every ID is stale (#936)
