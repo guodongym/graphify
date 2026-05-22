@@ -114,12 +114,13 @@ from graphify.detect import (
     DOC_EXTENSIONS,
     PAPER_EXTENSIONS,
     IMAGE_EXTENSIONS,
+    FileType,
+    classify_file,
     _load_graphifyignore,
     _is_ignored,
 )
 
 _WATCHED_EXTENSIONS = CODE_EXTENSIONS | DOC_EXTENSIONS | PAPER_EXTENSIONS | IMAGE_EXTENSIONS
-_CODE_EXTENSIONS = CODE_EXTENSIONS
 
 
 def _report_root_label(watch_path: Path) -> str:
@@ -651,7 +652,15 @@ def _notify_only(watch_path: Path) -> None:
 
 
 def _has_non_code(changed_paths: list[Path]) -> bool:
-    return any(p.suffix.lower() not in _CODE_EXTENSIONS for p in changed_paths)
+    return any(classify_file(p) != FileType.CODE for p in changed_paths)
+
+
+def _has_code(changed_paths: list[Path]) -> bool:
+    return any(
+        classify_file(p) == FileType.CODE
+        or (not p.exists() and p.suffix.lower() == ".txt")
+        for p in changed_paths
+    )
 
 
 def watch(watch_path: Path, debounce: float = 3.0) -> None:
@@ -728,7 +737,7 @@ def watch(watch_path: Path, debounce: float = 3.0) -> None:
                 changed.clear()
                 print(f"\n[graphify watch] {len(batch)} file(s) changed")
                 has_non_code = _has_non_code(batch)
-                has_code = any(p.suffix.lower() in _CODE_EXTENSIONS for p in batch)
+                has_code = _has_code(batch)
                 if has_code:
                     _rebuild_code(watch_path)
                 if has_non_code:

@@ -55,6 +55,30 @@ def test_watched_extensions_excludes_noise():
     assert ".pyc" not in _WATCHED_EXTENSIONS
     assert ".log" not in _WATCHED_EXTENSIONS
 
+def test_has_non_code_treats_tsv_like_txt_as_code(tmp_path):
+    from graphify.watch import _has_non_code
+
+    path = tmp_path / "config.txt"
+    path.write_text("ID\tName\n1\tAlpha\n", encoding="utf-8")
+
+    assert _has_non_code([path]) is False
+
+def test_has_non_code_treats_plain_txt_as_non_code(tmp_path):
+    from graphify.watch import _has_non_code
+
+    path = tmp_path / "notes.txt"
+    path.write_text("These are plain notes.\nThey need semantic extraction.\n", encoding="utf-8")
+
+    assert _has_non_code([path]) is True
+
+def test_missing_txt_change_triggers_code_rebuild_and_semantic_notify(tmp_path):
+    from graphify.watch import _has_code, _has_non_code
+
+    path = tmp_path / "deleted.txt"
+
+    assert _has_code([path]) is True
+    assert _has_non_code([path]) is True
+
 
 # --- watch() import error without watchdog ---
 

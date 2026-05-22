@@ -158,8 +158,8 @@ Replace INPUT_PATH with the actual path the user provided. Do NOT cat or print t
 
 ```
 Corpus: X files · ~Y words
-  code:     N files (.py .ts .go ...)
-  docs:     N files (.md .txt ...)
+  code:     N files (.py .ts .go ... plus TSV-like .txt)
+  docs:     N files (.md .txt prose ...)
   papers:   N files (.pdf ...)
   images:   N files
   video:    N files (.mp4 .mp3 ...)
@@ -170,9 +170,9 @@ Omit any category with 0 files from the summary.
 Then act on it:
 - If `total_files` is 0: stop with "No supported files found in [path]."
 - If `skipped_sensitive` is non-empty: mention file count skipped, not the file names.
-- If `total_words` > 2,000,000 OR `total_files` > 500: show the warning. Then compute the top 5 first-level subdirectories by file count:
+- If `semantic_files` exceeds 500 OR `semantic_words` exceeds ~2,000,000: show the warning. Do not count `code` files for this gate, because code and TSV-like `.txt` tables are extracted locally without LLM cost. Then compute the top 5 first-level subdirectories by semantic file count:
   - Read `scan_root` from the detect JSON (always an absolute path to the resolved INPUT_PATH).
-  - Concatenate all file lists across all types (`code`, `document`, `paper`, `image`, `video`).
+  - Concatenate only semantic file lists (`document`, `paper`, `image`, `video`).
   - Filter out any path that starts with `scan_root + "/graphify-out/"` to exclude converted sidecars.
   - For each file, strip the `scan_root` prefix and take the first path component. Files directly in `scan_root` with no subdirectory count as `(root)`.
   - If all files are in `(root)` with no subdirectories, do not ask to narrow — no subfolders exist. Instead suggest `--no-cluster` to skip the expensive clustering step and proceed.
@@ -832,12 +832,12 @@ If new files exist, first check whether all changed files are code files:
 $(cat graphify-out/.graphify_python) -c "
 import json
 from pathlib import Path
+from graphify.detect import classify_file, FileType
 
 result = json.loads(open('graphify-out/.graphify_incremental.json', encoding='utf-8').read()) if Path('graphify-out/.graphify_incremental.json').exists() else {}
-code_exts = {'.py','.ts','.js','.go','.rs','.java','.cpp','.c','.rb','.swift','.kt','.cs','.scala','.php','.cc','.cxx','.hpp','.h','.kts','.lua','.toc','.f','.F','.f90','.F90','.f95','.F95','.f03','.F03','.f08','.F08'}
 new_files = result.get('new_files', {})
 all_changed = [f for files in new_files.values() for f in files]
-code_only = all(Path(f).suffix.lower() in code_exts for f in all_changed)
+code_only = all(classify_file(Path(f)) == FileType.CODE for f in all_changed)
 print('code_only:', code_only)
 "
 ```

@@ -15,6 +15,44 @@ def test_classify_tab_as_code():
 def test_classify_uppercase_tab_as_code():
     assert classify_file(Path("CONFIG.TAB")) == FileType.CODE
 
+def test_classify_tsv_like_txt_as_code(tmp_path):
+    path = tmp_path / "config.txt"
+    path.write_text("ID\tName\tMode\n1\tAlpha\tactive\n2\tBeta\tinactive\n", encoding="utf-8")
+
+    assert classify_file(path) == FileType.CODE
+
+def test_classify_plain_txt_remains_document(tmp_path):
+    path = tmp_path / "notes.txt"
+    path.write_text("These are plain project notes.\nNo table structure here.\n", encoding="utf-8")
+
+    assert classify_file(path) == FileType.DOCUMENT
+
+def test_classify_paper_like_txt_with_weak_tab_signal_not_tabular(tmp_path):
+    path = tmp_path / "paper.txt"
+    path.write_text(
+        "Abstract\n\nWe propose a method from the literature.\n"
+        "See [1] and doi: 10.1234/example.\n"
+        "term\tdefinition\n"
+        "This prose line has no table delimiter.\n",
+        encoding="utf-8",
+    )
+
+    assert classify_file(path) == FileType.PAPER
+
+def test_detect_large_tsv_txt_code_corpus_does_not_warn_about_semantic_cost(tmp_path, monkeypatch):
+    import graphify.detect as detect_mod
+
+    monkeypatch.setattr(detect_mod, "CORPUS_WARN_THRESHOLD", 1)
+    monkeypatch.setattr(detect_mod, "FILE_COUNT_UPPER", 2)
+    for idx in range(3):
+        (tmp_path / f"config_{idx}.txt").write_text("ID\tName\n1\tAlpha\n", encoding="utf-8")
+
+    result = detect(tmp_path)
+
+    assert len(result["files"]["code"]) == 3
+    assert result["semantic_files"] == 0
+    assert result["warning"] is None
+
 def test_classify_markdown():
     assert classify_file(Path("README.md")) == FileType.DOCUMENT
 

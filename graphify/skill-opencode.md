@@ -98,8 +98,8 @@ Replace INPUT_PATH with the actual path the user provided. Do NOT cat or print t
 
 ```
 Corpus: X files · ~Y words
-  code:     N files (.py .ts .go ...)
-  docs:     N files (.md .txt ...)
+  code:     N files (.py .ts .go ... plus TSV-like .txt)
+  docs:     N files (.md .txt prose ...)
   papers:   N files (.pdf ...)
   images:   N files
   video:    N files (.mp4 .mp3 ...)
@@ -110,7 +110,7 @@ Omit any category with 0 files from the summary.
 Then act on it:
 - If `total_files` is 0: stop with "No supported files found in [path]."
 - If `skipped_sensitive` is non-empty: mention file count skipped, not the file names.
-- If `total_words` > 2,000,000 OR `total_files` > 200: do not stop for an interactive subfolder choice. Show the warning, reduce semantic chunks to 10-12 files each, and continue with all supported files. Tell the user this smaller-chunk policy was applied.
+- If `semantic_files` exceeds 500 OR `semantic_words` exceeds ~2,000,000: do not stop for an interactive subfolder choice. Show the warning, reduce semantic chunks to 10-12 files each, and continue with all supported files. Do not count `code` files for this gate, because code and TSV-like `.txt` tables are extracted locally without LLM cost. Tell the user this smaller-chunk policy was applied.
 - Otherwise: proceed directly to Step 2.5 if video files were detected, or Step 3 if not.
 
 ### Step 2.5 - Transcribe video / audio files (only if video files detected)
@@ -853,12 +853,12 @@ If new files exist, first check whether all changed files are code files:
 $(cat graphify-out/.graphify_python) -c "
 import json
 from pathlib import Path
+from graphify.detect import classify_file, FileType
 
-result = json.loads(open('graphify-out/.graphify_incremental.json').read()) if Path('graphify-out/.graphify_incremental.json').exists() else {}
-code_exts = {'.py','.ts','.js','.go','.rs','.java','.cpp','.c','.rb','.swift','.kt','.cs','.scala','.php','.cc','.cxx','.hpp','.h','.kts'}
+result = json.loads(open('graphify-out/.graphify_incremental.json', encoding='utf-8').read()) if Path('graphify-out/.graphify_incremental.json').exists() else {}
 new_files = result.get('new_files', {})
 all_changed = [f for files in new_files.values() for f in files]
-code_only = all(Path(f).suffix.lower() in code_exts for f in all_changed)
+code_only = all(classify_file(Path(f)) == FileType.CODE for f in all_changed)
 print('code_only:', code_only)
 "
 ```

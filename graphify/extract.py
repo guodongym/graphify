@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable, Any
 from .cache import load_cached, save_cached
 from graphify.detect import CODE_EXTENSIONS
+from graphify.tabular import looks_like_tabular_text
 
 _RECURSION_LIMIT = 10_000
 
@@ -7748,6 +7749,8 @@ def _get_extractor(path: Path) -> Any | None:
     """Return the correct extractor function for a file, or None if unsupported."""
     if path.name.lower().endswith(".blade.php"):
         return extract_blade
+    if path.suffix.lower() == ".txt" and looks_like_tabular_text(path):
+        return extract_tab
     return _DISPATCH.get(path.suffix.lower())
 
 
@@ -8190,6 +8193,14 @@ def collect_files(target: Path, *, follow_symlinks: bool = False, root: Path | N
                 if not any(_is_noise_dir(part) for part in p.parts)
                 and not _ignored(p)
             )
+        results.extend(
+            p for p in target.rglob("*")
+            if p.is_file()
+            and p.suffix.lower() == ".txt"
+            and not any(_is_noise_dir(part) for part in p.parts)
+            and not _ignored(p)
+            and looks_like_tabular_text(p)
+        )
         return sorted(results)
     # Walk with symlink following + cycle detection
     results = []
@@ -8204,7 +8215,10 @@ def collect_files(target: Path, *, follow_symlinks: bool = False, root: Path | N
         dirnames[:] = [d for d in dirnames if not _is_noise_dir(d)]
         for fname in filenames:
             p = dp / fname
-            if p.suffix in _EXTENSIONS and not _ignored(p):
+            if (
+                (p.suffix.lower() in _EXTENSIONS or looks_like_tabular_text(p))
+                and not _ignored(p)
+            ):
                 results.append(p)
     return sorted(results)
 

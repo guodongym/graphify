@@ -13,6 +13,7 @@ from graphify.google_workspace import (
     convert_google_workspace_file,
     google_workspace_enabled,
 )
+from graphify.tabular import looks_like_tabular_text
 
 
 class FileType(str, Enum):
@@ -303,6 +304,8 @@ def classify_file(path: Path) -> FileType | None:
     if ext in IMAGE_EXTENSIONS:
         return FileType.IMAGE
     if ext in DOC_EXTENSIONS:
+        if ext == ".txt" and looks_like_tabular_text(path):
+            return FileType.CODE
         # Check if it's a converted paper
         if _looks_like_paper(path):
             return FileType.PAPER
@@ -872,6 +875,7 @@ def detect(root: Path, *, follow_symlinks: bool | None = None, google_workspace:
         FileType.VIDEO: [],
     }
     total_words = 0
+    semantic_words = 0
 
     skipped_sensitive: list[str] = []
     ignore_patterns = _load_graphifyignore(root)
@@ -956,7 +960,9 @@ def detect(root: Path, *, follow_symlinks: bool | None = None, google_workspace:
                     if _is_ignored(md_path, root, ignore_patterns):
                         continue
                     files[ftype].append(str(md_path))
-                    total_words += count_words(md_path)
+                    words = count_words(md_path)
+                    total_words += words
+                    semantic_words += words
                 else:
                     skipped_sensitive.append(str(p) + " [Google Workspace export produced no readable text]")
                 continue
@@ -967,16 +973,25 @@ def detect(root: Path, *, follow_symlinks: bool | None = None, google_workspace:
                     if _is_ignored(md_path, root, ignore_patterns):
                         continue
                     files[ftype].append(str(md_path))
-                    total_words += count_words(md_path)
+                    words = count_words(md_path)
+                    total_words += words
+                    semantic_words += words
                 else:
                     # Conversion failed (library not installed) - skip with note
                     skipped_sensitive.append(str(p) + " [office conversion failed - pip install graphifyy[office]]")
                 continue
             files[ftype].append(str(p))
             if ftype != FileType.VIDEO:
-                total_words += count_words(p)
+                words = count_words(p)
+                total_words += words
+                if ftype in (FileType.DOCUMENT, FileType.PAPER, FileType.IMAGE):
+                    semantic_words += words
 
     total_files = sum(len(v) for v in files.values())
+    semantic_files = sum(
+        len(files[ftype])
+        for ftype in (FileType.DOCUMENT, FileType.PAPER, FileType.IMAGE, FileType.VIDEO)
+    )
     needs_graph = total_words >= CORPUS_WARN_THRESHOLD
 
     # Determine warning - lower bound, upper bound, or sensitive files skipped
@@ -986,9 +1001,9 @@ def detect(root: Path, *, follow_symlinks: bool | None = None, google_workspace:
             f"Corpus is ~{total_words:,} words - fits in a single context window. "
             f"You may not need a graph."
         )
-    elif total_words >= CORPUS_UPPER_THRESHOLD or total_files >= FILE_COUNT_UPPER:
+    elif semantic_words >= CORPUS_UPPER_THRESHOLD or semantic_files >= FILE_COUNT_UPPER:
         warning = (
-            f"Large corpus: {total_files} files · ~{total_words:,} words. "
+            f"Large semantic corpus: {semantic_files} files · ~{semantic_words:,} words. "
             f"Semantic extraction will be expensive (many Claude tokens). "
             f"Consider running on a subfolder."
         )
@@ -997,6 +1012,8 @@ def detect(root: Path, *, follow_symlinks: bool | None = None, google_workspace:
         "files": {k.value: v for k, v in files.items()},
         "total_files": total_files,
         "total_words": total_words,
+        "semantic_files": semantic_files,
+        "semantic_words": semantic_words,
         "needs_graph": needs_graph,
         "warning": warning,
         "skipped_sensitive": skipped_sensitive,

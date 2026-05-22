@@ -65,7 +65,7 @@ for ftype, files in result.get('files', {}).items():
 Replace `INPUT_PATH` with the actual path. Present a clean summary — do not dump the raw JSON.
 
 - If `total_files` is 0: stop with "No supported files found in [path]."
-- If `total_words` > 2,000,000 OR `total_files` > 200: warn the user and ask which subfolder to run on.
+- If `semantic_files` exceeds 500 OR `semantic_words` exceeds ~2,000,000: warn the user and ask which subfolder to run on. Do not count `code` files for this gate, because code and TSV-like `.txt` tables are extracted locally without LLM cost.
 - Otherwise: proceed to Step 3.
 
 ### Step 3 - Extract entities and relationships

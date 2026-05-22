@@ -42,6 +42,57 @@ def test_collect_files_includes_uppercase_tab(tmp_path):
 
     assert path in collect_files(tmp_path)
 
+def test_txt_dispatches_to_tab_extractor(tmp_path):
+    path = tmp_path / "config.txt"
+    path.write_text("ID\tName\tMode\n1\tAlpha\tactive\n2\tBeta\tinactive\n", encoding="utf-8")
+
+    result = extract([path], cache_root=tmp_path, parallel=False)
+
+    assert "config.txt" in labels(result)
+    assert "ID (column)" in labels(result)
+    assert "ID 1" in labels(result)
+    assert validate_extraction(result) == []
+
+def test_collect_files_includes_tsv_like_txt(tmp_path):
+    path = tmp_path / "config.txt"
+    path.write_text("ID\tName\n1\tAlpha\n", encoding="utf-8")
+
+    assert path in collect_files(tmp_path)
+
+def test_collect_files_includes_uppercase_tsv_like_txt(tmp_path):
+    path = tmp_path / "CONFIG.TXT"
+    path.write_text("ID\tName\n1\tAlpha\n", encoding="utf-8")
+
+    assert path in collect_files(tmp_path)
+
+def test_plain_txt_does_not_dispatch_to_tab_extractor(tmp_path):
+    path = tmp_path / "notes.txt"
+    path.write_text("These are plain notes.\nThey are not tabular.\n", encoding="utf-8")
+
+    result = extract([path], cache_root=tmp_path, parallel=False)
+
+    assert result["nodes"] == []
+    assert result["edges"] == []
+    assert validate_extraction(result) == []
+
+def test_ragged_tsv_like_txt_dispatches_to_tab_extractor(tmp_path):
+    path = tmp_path / "ragged.txt"
+    path.write_text(
+        "ID\tName\n"
+        "1\tAlpha\tExtra\n"
+        "2\tBeta\n"
+        "3\tGamma\n"
+        "4\tDelta\n",
+        encoding="utf-8",
+    )
+
+    result = extract([path], cache_root=tmp_path, parallel=False)
+
+    assert "ID 1" in labels(result)
+    assert "ID 2" in labels(result)
+    assert "extra_1 (column)" in labels(result)
+    assert validate_extraction(result) == []
+
 
 def test_extract_tab_finds_file_columns_and_rows(tmp_path):
     path = tmp_path / "sample.tab"
