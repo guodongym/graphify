@@ -327,6 +327,7 @@ def _rebuild_code(
     try:
         from graphify.extract import (
             extract,
+            _add_lua_include_edges,
             _add_lua_ini_reference_edges,
             _get_extractor,
             _redirect_tab_reference_edges,
@@ -444,6 +445,7 @@ def _rebuild_code(
                 if n.get("id") not in redirected_tab_stub_ids
             ]
 
+        _add_lua_include_edges(code_files, result["nodes"], result["edges"], project_root)
         _add_lua_ini_reference_edges(code_files, result["nodes"], result["edges"], project_root)
 
         _relativize_source_files(result, project_root)

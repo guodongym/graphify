@@ -8060,9 +8060,8 @@ def extract_ini(path: Path) -> dict:
 
 
 def _lua_string_literals(path: Path) -> list[tuple[str, int]]:
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    text = _read_lua_text(path)
+    if text is None:
         return []
     text = _lua_without_comments(text)
     out: list[tuple[str, int]] = []
@@ -8079,6 +8078,19 @@ def _lua_string_literals(path: Path) -> list[tuple[str, int]]:
             line = text.count("\n", 0, match.start()) + 1
             out.append((value, line))
     return out
+
+
+def _read_lua_text(path: Path) -> str | None:
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    for encoding in ("utf-8", "gb18030", "gbk"):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
 
 
 def _lua_long_bracket_end(text: str, start: int) -> tuple[int, str] | None:
@@ -8152,6 +8164,182 @@ def _unique_index(pairs: list[tuple[str, str]]) -> dict[str, str]:
     return {key: ids[0] for key, ids in buckets.items() if len(set(ids)) == 1}
 
 
+_LUA_FAMILY_EXTENSIONS = {".lua", ".luau", ".toc", ".lh"}
+
+
+def _lua_source_path(source_file: str, root: Path | None) -> Path:
+    path = Path(source_file)
+    if path.is_absolute():
+        return path.resolve()
+    if root is not None:
+        return (root / path).resolve()
+    return path.resolve()
+
+
+def _lua_file_node_index(nodes: list[dict], root: Path | None) -> dict[str, str]:
+    index: dict[str, str] = {}
+    for node in nodes:
+        if node.get("file_type") != "code":
+            continue
+        source_file = node.get("source_file")
+        if not source_file:
+            continue
+        source_path = _lua_source_path(str(source_file), root)
+        if node.get("label") != source_path.name:
+            continue
+        index[str(source_path)] = node["id"]
+    return index
+
+
+def _normalise_lua_include_path(value: str) -> str:
+    return value.strip().strip('"\'').replace("\\", "/")
+
+
+def _lua_include_candidates(lua_path: Path, root: Path, raw_value: str) -> list[Path]:
+    normalised = _normalise_lua_include_path(raw_value)
+    if not normalised:
+        return []
+    candidate = Path(normalised)
+    if candidate.is_absolute():
+        return [candidate]
+    return [
+        (lua_path.parent / normalised).resolve(),
+        (root / normalised).resolve(),
+    ]
+
+
+def _lua_quoted_string_at(text: str, start: int) -> tuple[str, int] | None:
+    quote = text[start]
+    if quote not in ("'", '"'):
+        return None
+    out: list[str] = []
+    i = start + 1
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n:
+            nxt = text[i + 1]
+            if nxt == quote:
+                out.append(nxt)
+            else:
+                out.append(ch + nxt)
+            i += 2
+            continue
+        if ch == quote:
+            return "".join(out), i + 1
+        out.append(ch)
+        i += 1
+    return None
+
+
+def _lua_identifier_boundary(text: str, start: int, end: int) -> bool:
+    before = text[start - 1] if start > 0 else ""
+    after = text[end] if end < len(text) else ""
+    return not (before.isalnum() or before == "_") and not (after.isalnum() or after == "_")
+
+
+def _skip_lua_long_bracket(text: str, start: int) -> int | None:
+    long_bracket = _lua_long_bracket_end(text, start)
+    if long_bracket is None:
+        return None
+    body_start, close = long_bracket
+    end = text.find(close, body_start)
+    return len(text) if end == -1 else end + len(close)
+
+
+def _lua_include_literals(path: Path) -> list[tuple[str, int]]:
+    text = _read_lua_text(path)
+    if text is None:
+        return []
+    out: list[tuple[str, int]] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text.startswith("--", i):
+            long_comment_end = _skip_lua_long_bracket(text, i + 2)
+            if long_comment_end is not None:
+                i = long_comment_end
+                continue
+            newline = text.find("\n", i)
+            i = n if newline == -1 else newline + 1
+            continue
+
+        quoted = _lua_quoted_string_at(text, i) if text[i] in ("'", '"') else None
+        if quoted is not None:
+            i = quoted[1]
+            continue
+
+        long_string_end = _skip_lua_long_bracket(text, i)
+        if long_string_end is not None:
+            i = long_string_end
+            continue
+
+        if text.startswith("Include", i) and _lua_identifier_boundary(text, i, i + len("Include")):
+            j = i + len("Include")
+            while j < n and text[j].isspace():
+                j += 1
+            if j < n and text[j] == "(":
+                j += 1
+                while j < n and text[j].isspace():
+                    j += 1
+                quoted_arg = _lua_quoted_string_at(text, j) if j < n and text[j] in ("'", '"') else None
+                if quoted_arg is not None:
+                    value, end = quoted_arg
+                    j = end
+                    while j < n and text[j].isspace():
+                        j += 1
+                    if j < n and text[j] == ")" and value:
+                        out.append((value, text.count("\n", 0, i) + 1))
+                        i = j + 1
+                        continue
+        i += 1
+    return out
+
+
+def _add_lua_include_edges(
+    paths: list[Path],
+    nodes: list[dict],
+    edges: list[dict],
+    root: Path,
+) -> None:
+    file_index = _lua_file_node_index(nodes, root)
+    if not file_index:
+        return
+
+    existing = {
+        (e.get("source"), e.get("target"), e.get("relation"), e.get("context"))
+        for e in edges
+    }
+    for path in paths:
+        if path.suffix.lower() not in _LUA_FAMILY_EXTENSIONS:
+            continue
+        source_nid = file_index.get(str(path.resolve()))
+        if source_nid is None:
+            continue
+        for value, line in _lua_include_literals(path):
+            target_nid = None
+            for candidate in _lua_include_candidates(path, root, value):
+                target_nid = file_index.get(str(candidate.resolve()))
+                if target_nid:
+                    break
+            if not target_nid or target_nid == source_nid:
+                continue
+            edge_key = (source_nid, target_nid, "imports_from", "include")
+            if edge_key in existing:
+                continue
+            existing.add(edge_key)
+            edges.append({
+                "source": source_nid,
+                "target": target_nid,
+                "relation": "imports_from",
+                "context": "include",
+                "confidence": "EXTRACTED",
+                "source_file": str(path),
+                "source_location": f"L{line}",
+                "weight": 1.0,
+            })
+
+
 def _add_lua_ini_reference_edges(
     paths: list[Path],
     nodes: list[dict],
@@ -8192,7 +8380,7 @@ def _add_lua_ini_reference_edges(
         for e in edges
     }
     for path in paths:
-        if path.suffix.lower() not in {".lua", ".luau", ".toc"}:
+        if path.suffix.lower() not in _LUA_FAMILY_EXTENSIONS:
             continue
         try:
             lua_file_nid = _make_id(str(path.relative_to(root)))
@@ -8249,6 +8437,7 @@ _DISPATCH: dict[str, Any] = {
     ".lua": extract_lua,
     ".luau": extract_lua,
     ".toc": extract_lua,
+    ".lh": extract_lua,
     ".zig": extract_zig,
     ".ps1": extract_powershell,
     ".ex": extract_elixir,
@@ -8406,6 +8595,17 @@ def _extract_parallel(
             "falling back to sequential. On Windows this usually means the "
             'caller is missing an `if __name__ == "__main__":` guard. Pass '
             "parallel=False to extract() to skip the pool entirely.",
+            flush=True,
+        )
+        return False
+    except OSError as exc:
+        # Some restricted environments block process-pool setup before any
+        # futures are submitted (for example semaphore sysconf access). Fall
+        # back to sequential extraction so AST extraction remains usable.
+        print(
+            "  warning: parallel extraction unavailable "
+            f"({type(exc).__name__}: {exc}); falling back to sequential. "
+            "Pass parallel=False to extract() to skip the pool entirely.",
             flush=True,
         )
         return False
@@ -8586,6 +8786,7 @@ def extract(
     if redirected_tab_stub_ids:
         all_nodes = [n for n in all_nodes if n.get("id") not in redirected_tab_stub_ids]
 
+    _add_lua_include_edges(paths, all_nodes, all_edges, root)
     _add_lua_ini_reference_edges(paths, all_nodes, all_edges, root)
 
     # Add cross-file class-level edges (Python only - uses Python parser internally)

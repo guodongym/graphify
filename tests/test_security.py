@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import urllib.error
 from pathlib import Path
 from typing import Any
@@ -31,11 +32,28 @@ from graphify.security import (
 # validate_url
 # ---------------------------------------------------------------------------
 
+def _mock_public_dns():
+    return patch(
+        "graphify.security.socket.getaddrinfo",
+        return_value=[
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("93.184.216.34", 0),
+            )
+        ],
+    )
+
+
 def test_validate_url_accepts_http():
-    assert validate_url("http://example.com/page") == "http://example.com/page"
+    with _mock_public_dns():
+        assert validate_url("http://example.com/page") == "http://example.com/page"
 
 def test_validate_url_accepts_https():
-    assert validate_url("https://arxiv.org/abs/1706.03762") == "https://arxiv.org/abs/1706.03762"
+    with _mock_public_dns():
+        assert validate_url("https://arxiv.org/abs/1706.03762") == "https://arxiv.org/abs/1706.03762"
 
 def test_validate_url_rejects_file():
     with pytest.raises(ValueError, match="file"):
@@ -79,7 +97,7 @@ def test_safe_fetch_rejects_ftp_url():
 
 def test_safe_fetch_returns_bytes(tmp_path):
     mock_resp = _make_mock_response(b"hello world")
-    with patch("graphify.security._build_opener") as mock_opener_fn:
+    with _mock_public_dns(), patch("graphify.security._build_opener") as mock_opener_fn:
         mock_opener = MagicMock()
         mock_opener.open.return_value = mock_resp
         mock_opener_fn.return_value = mock_opener
@@ -88,7 +106,7 @@ def test_safe_fetch_returns_bytes(tmp_path):
 
 def test_safe_fetch_raises_on_non_2xx():
     mock_resp = _make_mock_response(b"Not Found", status=404)
-    with patch("graphify.security._build_opener") as mock_opener_fn:
+    with _mock_public_dns(), patch("graphify.security._build_opener") as mock_opener_fn:
         mock_opener = MagicMock()
         mock_opener.open.return_value = mock_resp
         mock_opener_fn.return_value = mock_opener
@@ -106,7 +124,7 @@ def test_safe_fetch_raises_on_size_exceeded():
     # Return the chunk twice so total > max_bytes=65536
     mock_resp.read.side_effect = [big_chunk, big_chunk, b""]
 
-    with patch("graphify.security._build_opener") as mock_opener_fn:
+    with _mock_public_dns(), patch("graphify.security._build_opener") as mock_opener_fn:
         mock_opener = MagicMock()
         mock_opener.open.return_value = mock_resp
         mock_opener_fn.return_value = mock_opener
@@ -121,7 +139,7 @@ def test_safe_fetch_raises_on_size_exceeded():
 def test_safe_fetch_text_decodes_utf8():
     content = "héllo wörld".encode("utf-8")
     mock_resp = _make_mock_response(content)
-    with patch("graphify.security._build_opener") as mock_opener_fn:
+    with _mock_public_dns(), patch("graphify.security._build_opener") as mock_opener_fn:
         mock_opener = MagicMock()
         mock_opener.open.return_value = mock_resp
         mock_opener_fn.return_value = mock_opener
@@ -131,7 +149,7 @@ def test_safe_fetch_text_decodes_utf8():
 def test_safe_fetch_text_replaces_bad_bytes():
     bad = b"hello \xff world"
     mock_resp = _make_mock_response(bad)
-    with patch("graphify.security._build_opener") as mock_opener_fn:
+    with _mock_public_dns(), patch("graphify.security._build_opener") as mock_opener_fn:
         mock_opener = MagicMock()
         mock_opener.open.return_value = mock_resp
         mock_opener_fn.return_value = mock_opener

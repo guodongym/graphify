@@ -39,6 +39,7 @@ def test_watched_extensions_includes_code():
     assert ".rs" in _WATCHED_EXTENSIONS
     assert ".tab" in _WATCHED_EXTENSIONS
     assert ".ini" in _WATCHED_EXTENSIONS
+    assert ".lh" in _WATCHED_EXTENSIONS
 
 def test_watched_extensions_includes_docs():
     assert ".md" in _WATCHED_EXTENSIONS
@@ -300,6 +301,33 @@ def test_rebuild_code_changed_lua_recomputes_ini_references(tmp_path):
     ]
     assert ("ui.lua", "Inventory") in ini_refs
     assert ("ui.lua", "WorldMap") not in ini_refs
+
+
+def test_rebuild_code_changed_lua_header_recomputes_include_edges(tmp_path):
+    from graphify.watch import _rebuild_code
+
+    (tmp_path / ".git").mkdir()
+    first = tmp_path / "First.lh"
+    second = tmp_path / "Second.lh"
+    first.write_text("function First() return 1 end\n", encoding="utf-8")
+    second.write_text("function Second() return 2 end\n", encoding="utf-8")
+    header = tmp_path / "Player.lh"
+    header.write_text('Include("First.lh")\n', encoding="utf-8")
+
+    assert _rebuild_code(tmp_path, no_cluster=True, force=True)
+
+    header.write_text('Include("Second.lh")\n', encoding="utf-8")
+    assert _rebuild_code(tmp_path, changed_paths=[header], no_cluster=True, force=True)
+
+    graph = json.loads((tmp_path / "graphify-out" / "graph.json").read_text(encoding="utf-8"))
+    by_id = {n["id"]: n["label"] for n in graph["nodes"]}
+    include_refs = [
+        (by_id.get(e["source"]), by_id.get(e["target"]))
+        for e in graph["links"]
+        if e["relation"] == "imports_from" and e.get("context") == "include"
+    ]
+    assert ("Player.lh", "Second.lh") in include_refs
+    assert ("Player.lh", "First.lh") not in include_refs
 
 
 # --- .graphifyignore honored in watch handler (gh-928) ---

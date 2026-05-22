@@ -1,5 +1,5 @@
 from pathlib import Path
-from graphify.extract import extract_python, extract, collect_files, _make_id, extract_bash, extract_json, _DISPATCH
+from graphify.extract import extract_python, extract, collect_files, _make_id, extract_bash, extract_json, extract_lua, _DISPATCH
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -580,6 +580,25 @@ def test_extract_parallel_returns_false_on_broken_pool(tmp_path, monkeypatch, ca
     assert "__main__" in out, "warning must hint at the Windows __main__ guard idiom"
 
 
+def test_extract_parallel_returns_false_when_pool_cannot_start(tmp_path, monkeypatch, capsys):
+    """_extract_parallel must fall back when the OS blocks process-pool setup."""
+    import concurrent.futures
+    from graphify import extract as extract_mod
+
+    def raise_permission(*args, **kwargs):
+        raise PermissionError("simulated semaphore restriction")
+
+    monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", raise_permission)
+
+    uncached = [(0, FIXTURES / "sample.py")]
+    per_file: list = [None]
+    ok = extract_mod._extract_parallel(uncached, per_file, tmp_path, 2, 1)
+    assert ok is False, "function should report failure via return value, not raise"
+    out = capsys.readouterr().out
+    assert "parallel extraction unavailable" in out
+    assert "PermissionError" in out
+
+
 # ---------------------------------------------------------------------------
 # Bash extractor tests (#866)
 # ---------------------------------------------------------------------------
@@ -588,6 +607,108 @@ def test_dispatch_includes_sh_and_json():
     assert ".sh" in _DISPATCH
     assert ".bash" in _DISPATCH
     assert ".json" in _DISPATCH
+
+
+def test_lua_header_uses_lua_extractor():
+    from graphify.extract import _get_extractor
+
+    assert _get_extractor(Path("Player.lh")) is extract_lua
+
+
+def test_extract_lua_header_finds_functions(tmp_path):
+    header = tmp_path / "Player.lh"
+    header.write_text("function LearnSkillByLevel(level)\n  return level\nend\n", encoding="utf-8")
+
+    result = extract([header], cache_root=tmp_path, parallel=False)
+
+    labels = {n["label"] for n in result["nodes"]}
+    assert "Player.lh" in labels
+    assert "LearnSkillByLevel()" in labels
+
+
+def test_lua_include_edges_resolve_scanned_lua_header_files(tmp_path):
+    scripts = tmp_path / "scripts" / "Include"
+    scripts.mkdir(parents=True)
+    main = tmp_path / "main.lua"
+    player = tmp_path / "Player.lh"
+    skill = scripts / "Skill.lh"
+    main.write_text('Include("Player.lh")\nfunction Boot() LearnSkillByLevel(10) end\n', encoding="utf-8")
+    player.write_text(r'Include("scripts\Include\Skill.lh")' "\nfunction LearnSkillByLevel(level) Helper(level) end\n", encoding="utf-8")
+    skill.write_text("function Helper(level) return level end\n", encoding="utf-8")
+
+    result = extract([main, player, skill], cache_root=tmp_path, parallel=False)
+
+    by_id = {n["id"]: n for n in result["nodes"]}
+    include_edges = [
+        (by_id[e["source"]]["label"], by_id[e["target"]]["label"], e.get("context"))
+        for e in result["edges"]
+        if e["relation"] == "imports_from"
+    ]
+    assert ("main.lua", "Player.lh", "include") in include_edges
+    assert ("Player.lh", "Skill.lh", "include") in include_edges
+
+
+def test_lua_include_missing_target_does_not_create_stub_node(tmp_path):
+    main = tmp_path / "main.lua"
+    main.write_text('Include("missing/Skill.lh")\nfunction Boot() end\n', encoding="utf-8")
+
+    result = extract([main], cache_root=tmp_path, parallel=False)
+
+    labels = {n["label"] for n in result["nodes"]}
+    assert "missing/Skill.lh" not in labels
+    assert "Skill.lh" not in labels
+    assert not any(
+        e["relation"] == "imports_from" and e.get("context") == "include"
+        for e in result["edges"]
+    )
+
+
+def test_lua_include_ignores_comments_and_deduplicates_edges(tmp_path):
+    main = tmp_path / "main.lua"
+    target = tmp_path / "Target.lh"
+    main.write_text(
+        "-- Include('Target.lh')\n"
+        "local text = \"Include('Target.lh')\"\n"
+        "Include('Target.lh')\n"
+        "Include('Target.lh')\n"
+        "function Boot() end\n",
+        encoding="utf-8",
+    )
+    target.write_text("function TargetFn() end\n", encoding="utf-8")
+
+    result = extract([main, target], cache_root=tmp_path, parallel=False)
+
+    by_id = {n["id"]: n for n in result["nodes"]}
+    include_edges = [
+        e
+        for e in result["edges"]
+        if e["relation"] == "imports_from" and e.get("context") == "include"
+    ]
+    assert len(include_edges) == 1
+    assert by_id[include_edges[0]["source"]]["label"] == "main.lua"
+    assert by_id[include_edges[0]["target"]]["label"] == "Target.lh"
+    assert include_edges[0]["source_location"] == "L3"
+
+
+def test_lua_include_edges_decode_gb18030_paths(tmp_path):
+    include_dir = tmp_path / "scripts" / "Map" / "扬州" / "include"
+    include_dir.mkdir(parents=True)
+    main = tmp_path / "main.lh"
+    target = include_dir / "SceneCustomValueName.lh"
+    main.write_bytes(
+        'Include("scripts/Map/扬州/include/SceneCustomValueName.lh")\n'.encode("gb18030")
+    )
+    target.write_text("function SceneValue() return 1 end\n", encoding="utf-8")
+
+    result = extract([main, target], cache_root=tmp_path, parallel=False)
+
+    by_id = {n["id"]: n for n in result["nodes"]}
+    include_edges = [
+        (by_id[e["source"]]["label"], by_id[e["target"]]["label"], e.get("context"))
+        for e in result["edges"]
+        if e["relation"] == "imports_from"
+    ]
+    assert ("main.lh", "SceneCustomValueName.lh", "include") in include_edges
 
 
 def test_extract_bash_finds_functions():
