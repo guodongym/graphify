@@ -325,7 +325,12 @@ def _rebuild_code(
     project_root = Path.cwd().resolve() if not watch_path.is_absolute() else watch_root
     report_root = _report_root_label(watch_path)
     try:
-        from graphify.extract import extract, _get_extractor, _redirect_tab_reference_edges
+        from graphify.extract import (
+            extract,
+            _add_lua_ini_reference_edges,
+            _get_extractor,
+            _redirect_tab_reference_edges,
+        )
         from graphify.detect import detect
         from graphify.build import build_from_json
         from graphify.cluster import cluster, remap_communities_to_previous, score_all
@@ -415,6 +420,7 @@ def _rebuild_code(
                 preserved_edges = [
                     e for e in existing.get("links", existing.get("edges", []))
                     if e.get("source") in all_ids and e.get("target") in all_ids
+                    and (not evict_sources or e.get("source_file") not in evict_sources)
                 ]
                 result = {
                     "nodes": result["nodes"] + preserved_nodes,
@@ -437,6 +443,8 @@ def _rebuild_code(
                 n for n in result["nodes"]
                 if n.get("id") not in redirected_tab_stub_ids
             ]
+
+        _add_lua_ini_reference_edges(code_files, result["nodes"], result["edges"], project_root)
 
         _relativize_source_files(result, project_root)
         out.mkdir(exist_ok=True)

@@ -7673,6 +7673,554 @@ def extract_tab(path: Path) -> dict:
     return finish_result()
 
 
+_INI_MAX_BYTES = 5 * 1024 * 1024
+_INI_MAX_SECTIONS = 10_000
+_INI_MAX_KEYS = 50_000
+_INI_MAX_VALUE_NODES = 1_000
+_INI_MAX_PATH_REFS = 10_000
+
+_INI_PARENT_KEYS = frozenset({
+    "parent", "parentwnd", "parentwindow", "parentname", "parentpanel",
+})
+_INI_WND_TYPE_KEYS = frozenset({
+    "wndtype", "wnd_type", "windowtype", "controltype", "class", "type",
+})
+_INI_GEOMETRY_KEYS = frozenset({
+    "left", "top", "right", "bottom", "width", "height", "x", "y",
+    "posx", "posy", "position", "size", "z", "zorder",
+})
+_INI_NOISE_KEYS = _INI_GEOMETRY_KEYS | frozenset({
+    "alpha", "visible", "enable", "enabled", "disable", "disabled",
+    "checked", "default", "min", "max", "step", "id", "index",
+})
+_INI_ASSET_EXTENSIONS = frozenset({
+    ".lua", ".luau", ".ini", ".xml", ".json", ".png", ".jpg", ".jpeg",
+    ".dds", ".tga", ".uitex", ".atlas", ".wav", ".mp3",
+})
+_INI_UI_TYPE_HINTS = (
+    "wnd", "button", "btn", "label", "text", "image", "icon", "edit",
+    "check", "combo", "list", "scroll", "frame", "panel", "slider",
+)
+
+
+def _read_ini_text(path: Path) -> tuple[str, list[str], bool]:
+    warnings: list[str] = []
+    truncated = False
+    with path.open("rb") as f:
+        raw = f.read(_INI_MAX_BYTES + 1)
+    if len(raw) > _INI_MAX_BYTES:
+        truncated = True
+        warnings.append(f"truncated to {_INI_MAX_BYTES} bytes")
+        raw = raw[:_INI_MAX_BYTES]
+        last_newline = max(raw.rfind(b"\n"), raw.rfind(b"\r"))
+        raw = raw[:last_newline + 1] if last_newline >= 0 else b""
+        if not raw:
+            warnings.append("no complete ini record inside byte limit")
+    text, encoding = _decode_tab_bytes(raw)
+    if encoding == "utf-8-replace":
+        warnings.append("decoded with replacement after utf-8/gb18030 failed")
+    return text, warnings, truncated
+
+
+def _strip_ini_inline_comment(value: str) -> str:
+    in_quote: str | None = None
+    escaped = False
+    for idx, ch in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if ch == "\\":
+            escaped = True
+            continue
+        if ch in ("'", '"'):
+            if in_quote == ch:
+                in_quote = None
+            elif in_quote is None:
+                in_quote = ch
+            continue
+        if in_quote is None and ch in (";", "#") and (idx == 0 or value[idx - 1].isspace()):
+            return value[:idx].rstrip()
+    return value.strip()
+
+
+def _parse_ini_records(text: str) -> tuple[list[dict], int]:
+    sections: list[dict] = []
+    current: dict | None = None
+    pending_comments: list[str] = []
+    key_count = 0
+    section_counts: dict[str, int] = {}
+
+    for lineno, raw_line in enumerate(text.splitlines(), start=1):
+        stripped = raw_line.strip()
+        if not stripped:
+            pending_comments = []
+            continue
+        if stripped.startswith((";", "#")):
+            comment = stripped[1:].strip()
+            if comment:
+                pending_comments.append(comment)
+            continue
+
+        section_match = re.match(r"^\s*\[([^\]]+)\]\s*(?:[;#].*)?$", raw_line)
+        if section_match:
+            if len(sections) >= _INI_MAX_SECTIONS:
+                current = None
+                pending_comments = []
+                continue
+            raw_name = section_match.group(1).strip()
+            if not raw_name:
+                current = None
+                pending_comments = []
+                continue
+            section_counts[raw_name] = section_counts.get(raw_name, 0) + 1
+            occurrence = section_counts[raw_name]
+            label = raw_name if occurrence == 1 else f"{raw_name} #{occurrence}"
+            current = {
+                "raw_name": raw_name,
+                "label": label,
+                "line": lineno,
+                "keys": [],
+                "comments": pending_comments[:],
+                "properties": {},
+            }
+            sections.append(current)
+            pending_comments = []
+            continue
+
+        if current is None or key_count >= _INI_MAX_KEYS:
+            pending_comments = []
+            continue
+
+        separator = "=" if "=" in raw_line else ":" if ":" in raw_line else None
+        if separator is None:
+            pending_comments = []
+            continue
+        raw_key, raw_value = raw_line.split(separator, 1)
+        key = raw_key.strip()
+        value = _strip_ini_inline_comment(raw_value)
+        if not key:
+            pending_comments = []
+            continue
+        current["keys"].append({
+            "key": key,
+            "value": value,
+            "line": lineno,
+            "comments": pending_comments[:],
+        })
+        current["properties"][key] = value
+        key_count += 1
+        pending_comments = []
+
+    return sections, key_count
+
+
+def _ini_key_norm(key: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", key.lower())
+
+
+def _ini_scalar_value(value: str) -> str:
+    return value.strip().strip('"\'')
+
+
+def _is_numeric_ini_value(value: str) -> bool:
+    return re.fullmatch(r"[-+]?(?:\d+(?:\.\d+)?|\.\d+)", _ini_scalar_value(value)) is not None
+
+
+def _is_ini_ui_type_value(value: str) -> bool:
+    cleaned = _ini_scalar_value(value).lower()
+    return bool(cleaned) and cleaned.startswith(_INI_UI_TYPE_HINTS)
+
+
+def _is_ini_ui_section(section: dict) -> bool:
+    for item in section["keys"]:
+        key_norm = _ini_key_norm(item["key"])
+        if key_norm in _INI_PARENT_KEYS:
+            return True
+        if key_norm in _INI_WND_TYPE_KEYS and _is_ini_ui_type_value(item["value"]):
+            return True
+    return False
+
+
+def _ini_value_tokens(value: str) -> list[str]:
+    cleaned = _ini_scalar_value(value)
+    if not cleaned:
+        return []
+    tokens = re.split(r"[\s,]+", cleaned)
+    return [t.strip().strip('"\'') for t in tokens if t.strip().strip('"\'')]
+
+
+def _normalise_ini_path_value(value: str) -> str:
+    return _ini_scalar_value(value).replace("\\", "/")
+
+
+def _looks_like_ini_asset_ref(value: str) -> bool:
+    cleaned = _normalise_ini_path_value(value)
+    if not cleaned or len(cleaned) > 512:
+        return False
+    if _is_tab_url_value(cleaned):
+        return False
+    return Path(cleaned).suffix.lower() in _INI_ASSET_EXTENSIONS
+
+
+def _ini_reference_node(raw_value: str, ini_path: Path) -> tuple[str, str, str, str]:
+    normalised = _normalise_ini_path_value(raw_value)
+    for candidate in _tab_path_candidates(ini_path, normalised):
+        if candidate.exists():
+            return _make_id(str(ini_path), "ref", normalised), candidate.name, str(ini_path), normalised
+    return _make_id(str(ini_path), "ref", normalised), normalised, str(ini_path), normalised
+
+
+def extract_ini(path: Path) -> dict:
+    """Extract sections, UI hierarchy, typed values, and asset references from .ini files."""
+    try:
+        text, warnings, truncated = _read_ini_text(path)
+    except Exception as e:
+        return {"nodes": [], "edges": [], "error": f"{type(e).__name__}: {e}"}
+
+    str_path = str(path)
+    stem = _file_stem(path)
+    nodes: list[dict] = []
+    edges: list[dict] = []
+    seen_ids: set[str] = set()
+
+    def add_node(
+        nid: str,
+        label: str,
+        file_type: str,
+        line: int,
+        extra: dict | None = None,
+    ) -> None:
+        if nid in seen_ids:
+            return
+        seen_ids.add(nid)
+        node = {
+            "id": nid,
+            "label": label,
+            "file_type": file_type,
+            "source_file": str_path,
+            "source_location": f"L{line}",
+        }
+        if extra:
+            node.update(extra)
+        nodes.append(node)
+
+    def add_edge(
+        src: str,
+        tgt: str,
+        relation: str,
+        line: int,
+        context: str | None = None,
+        extra: dict | None = None,
+    ) -> None:
+        if not src or not tgt or src == tgt:
+            return
+        edge = {
+            "source": src,
+            "target": tgt,
+            "relation": relation,
+            "confidence": "EXTRACTED",
+            "source_file": str_path,
+            "source_location": f"L{line}",
+            "weight": 1.0,
+        }
+        if context:
+            edge["context"] = context
+        if extra:
+            edge.update(extra)
+        edges.append(edge)
+
+    def finish_result() -> dict:
+        result = {"nodes": nodes, "edges": edges, "input_tokens": 0, "output_tokens": 0}
+        if warnings:
+            print(
+                f"  warning: {path} indexed with limits: {'; '.join(warnings)}",
+                file=sys.stderr,
+                flush=True,
+            )
+            result["warnings"] = warnings
+        if truncated:
+            result["truncated"] = True
+        return result
+
+    file_nid = _make_id(str(path))
+    add_node(file_nid, path.name, "code", 1, {"context": "ini_file"})
+
+    sections, key_count = _parse_ini_records(text)
+    if len(sections) >= _INI_MAX_SECTIONS:
+        warnings.append(f"indexed first {_INI_MAX_SECTIONS} sections")
+        truncated = True
+    if key_count >= _INI_MAX_KEYS:
+        warnings.append(f"indexed first {_INI_MAX_KEYS} keys")
+        truncated = True
+
+    raw_name_counts: dict[str, int] = {}
+    for section in sections:
+        raw_name_counts[section["raw_name"]] = raw_name_counts.get(section["raw_name"], 0) + 1
+
+    raw_name_to_nid = {
+        section["raw_name"]: _make_id(stem, "section", section["label"])
+        for section in sections
+        if raw_name_counts.get(section["raw_name"]) == 1
+    }
+    section_nids: dict[int, str] = {}
+    for section in sections:
+        section_nid = _make_id(stem, "section", section["label"])
+        section_nids[id(section)] = section_nid
+        extra = {
+            "context": "ini_section",
+            "ini_section": section["raw_name"],
+        }
+        if section["comments"]:
+            extra["comments"] = section["comments"]
+        geometry = {
+            item["key"]: item["value"]
+            for item in section["keys"]
+            if _ini_key_norm(item["key"]) in _INI_GEOMETRY_KEYS and item["value"]
+        }
+        if geometry:
+            extra["properties"] = geometry
+        add_node(section_nid, section["label"], "code", section["line"], extra)
+        add_edge(file_nid, section_nid, "contains", section["line"], "ini")
+
+    value_node_count = 0
+    value_node_skipped = False
+    path_ref_count = 0
+    path_ref_skipped = False
+    for section in sections:
+        section_nid = section_nids[id(section)]
+        is_ui = _is_ini_ui_section(section)
+        for item in section["keys"]:
+            key = item["key"]
+            value = item["value"]
+            line = item["line"]
+            key_norm = _ini_key_norm(key)
+            if not value:
+                continue
+
+            if key_norm in _INI_PARENT_KEYS:
+                target = raw_name_to_nid.get(_ini_scalar_value(value))
+                if target:
+                    add_edge(section_nid, target, "parent", line, "ini")
+                continue
+
+            if key_norm in _INI_WND_TYPE_KEYS and _is_ini_ui_type_value(value):
+                type_label = _ini_scalar_value(value)
+                type_nid = _make_id(stem, "wnd_type", type_label)
+                add_node(type_nid, type_label, "concept", line, {"context": "ini_wnd_type"})
+                add_edge(section_nid, type_nid, "wnd_type", line, "ini")
+                continue
+
+            for token in _ini_value_tokens(value):
+                if not _looks_like_ini_asset_ref(token):
+                    continue
+                if path_ref_count >= _INI_MAX_PATH_REFS:
+                    path_ref_skipped = True
+                    continue
+                ref_nid, ref_label, ref_source, target_ref = _ini_reference_node(token, path)
+                if ref_nid not in seen_ids:
+                    seen_ids.add(ref_nid)
+                    nodes.append({
+                        "id": ref_nid,
+                        "label": ref_label,
+                        "file_type": "code",
+                        "source_file": ref_source,
+                        "source_location": f"L{line}",
+                    })
+                add_edge(section_nid, ref_nid, "references", line, "asset", {"target_ref": target_ref})
+                path_ref_count += 1
+
+            if is_ui or key_norm in _INI_NOISE_KEYS:
+                continue
+
+            key_nid = _make_id(section_nid, "key", key)
+            add_node(key_nid, key, "code", line, {"context": "ini_key"})
+            add_edge(section_nid, key_nid, "defines", line, "ini")
+
+            if _is_numeric_ini_value(value) or len(value) > 80 or _looks_like_ini_asset_ref(value):
+                continue
+            value_text = _ini_scalar_value(value)
+            value_label = f"{key}={value_text}"
+            value_nid = _make_id(section_nid, "value", key, value)
+            if value_nid not in seen_ids:
+                if value_node_count >= _INI_MAX_VALUE_NODES:
+                    value_node_skipped = True
+                    continue
+                add_node(value_nid, value_label, "concept", line, {"context": "ini_value"})
+                value_node_count += 1
+            add_edge(key_nid, value_nid, "sets", line, "value")
+
+    if path_ref_skipped:
+        warnings.append(f"indexed first {_INI_MAX_PATH_REFS} asset references")
+        truncated = True
+    if value_node_skipped:
+        warnings.append(f"indexed first {_INI_MAX_VALUE_NODES} value nodes")
+        truncated = True
+
+    return finish_result()
+
+
+def _lua_string_literals(path: Path) -> list[tuple[str, int]]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    text = _lua_without_comments(text)
+    out: list[tuple[str, int]] = []
+    quoted_re = re.compile(r"""(['"])((?:\\.|(?!\1).)*)\1""")
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        for match in quoted_re.finditer(line):
+            value = match.group(2).replace(r"\'", "'").replace(r'\"', '"')
+            if value:
+                out.append((value, lineno))
+    long_re = re.compile(r"\[(=*)\[([\s\S]*?)\]\1\]")
+    for match in long_re.finditer(text):
+        value = match.group(2)
+        if value:
+            line = text.count("\n", 0, match.start()) + 1
+            out.append((value, line))
+    return out
+
+
+def _lua_long_bracket_end(text: str, start: int) -> tuple[int, str] | None:
+    match = re.match(r"\[(=*)\[", text[start:])
+    if not match:
+        return None
+    return start + match.end(), "]" + match.group(1) + "]"
+
+
+def _lua_without_comments(text: str) -> str:
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text.startswith("--", i):
+            long_comment = _lua_long_bracket_end(text, i + 2)
+            if long_comment is not None:
+                body_start, close = long_comment
+                end = text.find(close, body_start)
+                skipped = text[i:n if end == -1 else end + len(close)]
+                out.extend("\n" for ch in skipped if ch == "\n")
+                i = n if end == -1 else end + len(close)
+                continue
+            newline = text.find("\n", i)
+            if newline == -1:
+                break
+            out.append("\n")
+            i = newline + 1
+            continue
+
+        ch = text[i]
+        if ch in ("'", '"'):
+            quote = ch
+            out.append(ch)
+            i += 1
+            while i < n:
+                out.append(text[i])
+                if text[i] == "\\":
+                    if i + 1 < n:
+                        out.append(text[i + 1])
+                    i += 2
+                    continue
+                    break
+                if text[i] == quote:
+                    i += 1
+                    break
+                i += 1
+            continue
+
+        long_string = _lua_long_bracket_end(text, i)
+        if long_string is not None:
+            body_start, close = long_string
+            end = text.find(close, body_start)
+            if end == -1:
+                out.append(text[i:])
+                break
+            out.append(text[i:end + len(close)])
+            i = end + len(close)
+            continue
+
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _unique_index(pairs: list[tuple[str, str]]) -> dict[str, str]:
+    buckets: dict[str, list[str]] = {}
+    for key, nid in pairs:
+        if key:
+            buckets.setdefault(key, []).append(nid)
+    return {key: ids[0] for key, ids in buckets.items() if len(set(ids)) == 1}
+
+
+def _add_lua_ini_reference_edges(
+    paths: list[Path],
+    nodes: list[dict],
+    edges: list[dict],
+    root: Path,
+) -> None:
+    section_pairs: list[tuple[str, str]] = []
+    file_pairs: list[tuple[str, str]] = []
+    for node in nodes:
+        source_file = str(node.get("source_file") or "")
+        if node.get("context") == "ini_section":
+            section_pairs.append((str(node.get("ini_section") or node.get("label") or ""), node["id"]))
+        elif source_file.lower().endswith(".ini") and node.get("label", "").lower().endswith(".ini"):
+            label = str(node.get("label") or "")
+            source_path = Path(source_file)
+            keys = [
+                (label, node["id"]),
+                (Path(label).stem, node["id"]),
+                (source_path.as_posix(), node["id"]),
+                (source_path.name, node["id"]),
+                (source_path.stem, node["id"]),
+            ]
+            abs_source = source_path if source_path.is_absolute() else root / source_path
+            try:
+                rel_source = abs_source.resolve().relative_to(root.resolve())
+                keys.append((rel_source.as_posix(), node["id"]))
+            except (OSError, ValueError):
+                pass
+            file_pairs.extend(keys)
+
+    section_index = _unique_index(section_pairs)
+    file_index = _unique_index(file_pairs)
+    if not section_index and not file_index:
+        return
+
+    existing = {
+        (e.get("source"), e.get("target"), e.get("relation"), e.get("context"))
+        for e in edges
+    }
+    for path in paths:
+        if path.suffix.lower() not in {".lua", ".luau", ".toc"}:
+            continue
+        try:
+            lua_file_nid = _make_id(str(path.relative_to(root)))
+        except ValueError:
+            lua_file_nid = _make_id(str(path))
+        for value, line in _lua_string_literals(path):
+            target = section_index.get(value) or file_index.get(value)
+            if target is None and value.lower().endswith(".ini"):
+                normalised = value.replace("\\", "/")
+                target = file_index.get(normalised) or file_index.get(Path(normalised).name)
+            if not target or target == lua_file_nid:
+                continue
+            edge_key = (lua_file_nid, target, "references", "ini")
+            if edge_key in existing:
+                continue
+            existing.add(edge_key)
+            edges.append({
+                "source": lua_file_nid,
+                "target": target,
+                "relation": "references",
+                "context": "ini",
+                "confidence": "EXTRACTED",
+                "source_file": str(path),
+                "source_location": f"L{line}",
+                "weight": 1.0,
+            })
+
+
 _DISPATCH: dict[str, Any] = {
     ".py": extract_python,
     ".js": extract_js,
@@ -7742,6 +8290,8 @@ _DISPATCH: dict[str, Any] = {
     ".json": extract_json,
     ".tab": extract_tab,
     ".TAB": extract_tab,
+    ".ini": extract_ini,
+    ".INI": extract_ini,
 }
 
 
@@ -8035,6 +8585,8 @@ def extract(
     )
     if redirected_tab_stub_ids:
         all_nodes = [n for n in all_nodes if n.get("id") not in redirected_tab_stub_ids]
+
+    _add_lua_ini_reference_edges(paths, all_nodes, all_edges, root)
 
     # Add cross-file class-level edges (Python only - uses Python parser internally)
     py_paths = [p for p in paths if p.suffix == ".py"]

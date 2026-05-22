@@ -12,6 +12,9 @@ def test_classify_typescript():
 def test_classify_tab_as_code():
     assert classify_file(Path("config.tab")) == FileType.CODE
 
+def test_classify_ini_as_code():
+    assert classify_file(Path("WorldMap.ini")) == FileType.CODE
+
 def test_classify_uppercase_tab_as_code():
     assert classify_file(Path("CONFIG.TAB")) == FileType.CODE
 
