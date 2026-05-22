@@ -2,9 +2,19 @@
 
 Full release notes with details on each version: [GitHub Releases](https://github.com/safishamsi/graphify/releases)
 
-## 0.8.14+hanhai.0.1 (2026-05-21)
+## 0.8.15+hanhai.0.1 (2026-05-22)
 
-- Internal Hanhai build: add deterministic `.tab` structured extraction with UTF-8/GB18030 decoding, schema-agnostic row nodes, bounded value nodes, path-reference edges, and watch/update coverage.
+- Internal Hanhai build: carry local structured `.tab` and `.ini` extraction, TSV-like `.txt` routing, and Lua header `.lh` support with static `Include(...)` dependency edges on top of upstream 0.8.15.
+
+## 0.8.15 (2026-05-22)
+
+- Fix: `cluster-only` subcommand crashed with `FileNotFoundError` when `graphify-out/` did not yet exist — output directory is now created before any write (#934)
+- Fix: `GRAPHIFY_MAX_OUTPUT_TOKENS` env var now respected for all OpenAI-compatible backends — previously the token limit was hardcoded, causing truncated responses on high-context queries (#973)
+- Fix: Swift extension nodes no longer duplicated across files — `_merge_swift_extensions` deduplicates by canonical name before graph insertion (#969)
+- Fix: Non-Latin query terms (CJK, Arabic, Cyrillic, etc.) now preserved through query preprocessing — previous normalization stripped non-ASCII chars, making multi-lingual codebases unsearchable (#964)
+- Feat: Multigraph runtime compatibility probe — emits a warning if a `MultiDiGraph` is passed where a `Graph` is expected by any downstream consumer (analyze, cluster, wiki, export, report) (#956)
+- Feat: JS/TS barrel re-exports tracked as explicit `re_exports` graph edges — `export { X } from './mod'` emits typed edges with `context="re-export"` and `confidence=EXTRACTED`; file-level `imports_from` edges also emitted (#960)
+- Feat: `--affected` and `--import-resolution` flags for the `v8` subcommand — impact analysis and cross-file import resolution exposed as first-class CLI options
 
 ## 0.8.14 (2026-05-20)
 
