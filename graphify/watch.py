@@ -285,8 +285,9 @@ def _rebuild_code(
     """Re-run AST extraction + build + optional cluster + report for code files. No LLM needed.
 
     When ``force`` is True the node-count safety check in ``to_json`` is bypassed
-    so the rebuilt graph overwrites graph.json even if it has fewer nodes.
-    Use this after refactors that legitimately delete code.
+    so the rebuilt graph overwrites graph.json even if it has fewer nodes, and
+    outputs are rewritten even when the graph topology is unchanged. Use this
+    after refactors that legitimately delete code or when metadata must refresh.
 
     When ``changed_paths`` is provided, only those files are re-extracted; nodes
     for unchanged files are preserved from the existing graph. Deleted paths
@@ -512,7 +513,7 @@ def _rebuild_code(
                 )
             except Exception:
                 same_topology = False
-            if same_topology:
+            if same_topology and not force:
                 try:
                     from graphify.detect import save_manifest
                     save_manifest(detected["files"], kind="ast")
@@ -567,7 +568,7 @@ def _rebuild_code(
         if report_path.exists():
             old_report = report_path.read_text(encoding="utf-8")
             same_report = _report_for_compare(old_report) == _report_for_compare(report)
-        no_change = same_graph and same_report
+        no_change = same_graph and same_report and not force
         if no_change:
             graph_tmp.unlink(missing_ok=True)
             print("[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.")

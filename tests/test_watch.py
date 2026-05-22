@@ -238,6 +238,29 @@ def test_rebuild_code_skips_cluster_when_topology_unchanged(tmp_path, monkeypatc
     assert calls["n"] == 1
 
 
+def test_rebuild_code_force_rewrites_metadata_when_topology_unchanged(tmp_path, monkeypatch):
+    from graphify import watch as watch_mod
+
+    src = tmp_path / "app.py"
+    src.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    commit = {"value": "1111111111111111111111111111111111111111"}
+    monkeypatch.setattr(watch_mod, "_git_head", lambda: commit["value"])
+
+    assert watch_mod._rebuild_code(tmp_path, force=True)
+    graph_path = tmp_path / "graphify-out" / "graph.json"
+    report_path = tmp_path / "graphify-out" / "GRAPH_REPORT.md"
+    first_graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    assert first_graph["built_at_commit"] == commit["value"]
+
+    commit["value"] = "2222222222222222222222222222222222222222"
+    assert watch_mod._rebuild_code(tmp_path, force=True)
+
+    second_graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    second_report = report_path.read_text(encoding="utf-8")
+    assert second_graph["built_at_commit"] == commit["value"]
+    assert "Built from commit: `22222222`" in second_report
+
+
 def test_rebuild_code_changed_tab_keeps_reference_connected_to_preserved_file(tmp_path):
     from graphify.watch import _rebuild_code
 
