@@ -8,15 +8,23 @@ _TABULAR_SAMPLE_BYTES = 64 * 1024
 _TABULAR_SAMPLE_LINES = 256
 _TABULAR_MIN_TAB_RATIO = 0.8
 _TABULAR_MIN_STABLE_RATIO = 0.8
+_STRUCTURED_TEXT_ENCODINGS = ("utf-8-sig", "utf-8", "gb18030")
+
+
+def decode_structured_text(raw: bytes, *, replace: bool = False) -> tuple[str | None, str | None]:
+    for enc in _STRUCTURED_TEXT_ENCODINGS:
+        try:
+            return raw.decode(enc), enc
+        except UnicodeDecodeError:
+            continue
+    if replace:
+        return raw.decode("utf-8", errors="replace"), "utf-8-replace"
+    return None, None
 
 
 def _decode_sample(raw: bytes) -> str | None:
-    for enc in ("utf-8-sig", "utf-8", "gb18030"):
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return None
+    text, _encoding = decode_structured_text(raw)
+    return text
 
 
 def looks_like_tabular_text(path: Path) -> bool:

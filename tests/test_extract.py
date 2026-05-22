@@ -609,6 +609,34 @@ def test_dispatch_includes_sh_and_json():
     assert ".json" in _DISPATCH
 
 
+def test_dispatch_omits_unreachable_uppercase_tab_ini_entries():
+    assert ".tab" in _DISPATCH
+    assert ".ini" in _DISPATCH
+    assert ".TAB" not in _DISPATCH
+    assert ".INI" not in _DISPATCH
+
+
+def test_collect_files_scans_tabular_txt_with_txt_glob(tmp_path, monkeypatch):
+    table = tmp_path / "data.txt"
+    table.write_text("ID\tName\n1\tAlpha\n2\tBeta\n", encoding="utf-8")
+    (tmp_path / "notes.md").write_text("# Notes\n", encoding="utf-8")
+
+    patterns: list[str] = []
+    original_rglob = Path.rglob
+
+    def spy_rglob(self, pattern):
+        patterns.append(pattern)
+        return original_rglob(self, pattern)
+
+    monkeypatch.setattr(Path, "rglob", spy_rglob)
+
+    files = collect_files(tmp_path)
+
+    assert table in files
+    assert "*.txt" in patterns
+    assert "*" not in patterns
+
+
 def test_lua_header_uses_lua_extractor():
     from graphify.extract import _get_extractor
 

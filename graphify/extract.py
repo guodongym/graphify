@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable, Any
 from .cache import load_cached, save_cached
 from graphify.detect import CODE_EXTENSIONS
-from graphify.tabular import looks_like_tabular_text
+from graphify.tabular import decode_structured_text, looks_like_tabular_text
 
 _RECURSION_LIMIT = 10_000
 
@@ -7290,12 +7290,8 @@ _TAB_MAX_PATH_REFS = 10_000
 
 
 def _decode_tab_bytes(raw: bytes) -> tuple[str, str]:
-    for enc in ("utf-8-sig", "utf-8", "gb18030"):
-        try:
-            return raw.decode(enc), enc
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="replace"), "utf-8-replace"
+    text, encoding = decode_structured_text(raw, replace=True)
+    return text or "", encoding or "utf-8-replace"
 
 
 def _read_tab_text(path: Path) -> tuple[str, list[str], bool]:
@@ -7371,13 +7367,18 @@ _TAB_PROJECT_ROOT_MARKERS = {
     ".git", "pyproject.toml", "package.json", "go.mod", "Cargo.toml", "graphify-out",
 }
 
+_CASE_VARIANT_GLOB_EXTENSIONS = {".tab", ".ini", ".txt"}
+
 
 def _normalise_tab_path_value(value: str) -> str:
     return value.strip().strip('"\'').replace("\\", "/")
 
 
+_TAB_URL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+
+
 def _is_tab_url_value(value: str) -> bool:
-    return re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", value) is not None
+    return _TAB_URL_RE.match(value) is not None
 
 
 def _looks_like_tab_path(value: str) -> bool:
@@ -7730,6 +7731,9 @@ def _strip_ini_inline_comment(value: str) -> str:
             escaped = False
             continue
         if ch == "\\":
+            # The JX3-style INI dialect uses backslash paths heavily. Treat the
+            # next byte as escaped only for comment/quote scanning so values like
+            # C:\Users\test are preserved verbatim by the final slice.
             escaped = True
             continue
         if ch in ("'", '"'):
@@ -8133,7 +8137,6 @@ def _lua_without_comments(text: str) -> str:
                         out.append(text[i + 1])
                     i += 2
                     continue
-                    break
                 if text[i] == quote:
                     i += 1
                     break
@@ -8478,9 +8481,7 @@ _DISPATCH: dict[str, Any] = {
     ".bash": extract_bash,
     ".json": extract_json,
     ".tab": extract_tab,
-    ".TAB": extract_tab,
     ".ini": extract_ini,
-    ".INI": extract_ini,
 }
 
 
@@ -8939,21 +8940,26 @@ def collect_files(target: Path, *, follow_symlinks: bool = False, root: Path | N
         return bool(patterns and _is_ignored(p, ignore_root, patterns))
 
     if not follow_symlinks:
-        results: list[Path] = []
+        results: set[Path] = set()
         for ext in sorted(_EXTENSIONS):
-            results.extend(
-                p for p in target.rglob(f"*{ext}")
-                if not any(_is_noise_dir(part) for part in p.parts)
+            glob_patterns = [f"*{ext}"]
+            if ext in _CASE_VARIANT_GLOB_EXTENSIONS:
+                glob_patterns.append(f"*{ext.upper()}")
+            for pattern in glob_patterns:
+                results.update(
+                    p for p in target.rglob(pattern)
+                    if not any(_is_noise_dir(part) for part in p.parts)
+                    and not _ignored(p)
+                )
+        for pattern in ("*.txt", "*.TXT"):
+            results.update(
+                p for p in target.rglob(pattern)
+                if p.is_file()
+                and p.suffix.lower() == ".txt"
+                and not any(_is_noise_dir(part) for part in p.parts)
                 and not _ignored(p)
+                and looks_like_tabular_text(p)
             )
-        results.extend(
-            p for p in target.rglob("*")
-            if p.is_file()
-            and p.suffix.lower() == ".txt"
-            and not any(_is_noise_dir(part) for part in p.parts)
-            and not _ignored(p)
-            and looks_like_tabular_text(p)
-        )
         return sorted(results)
     # Walk with symlink following + cycle detection
     results = []

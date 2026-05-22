@@ -669,6 +669,8 @@ def _has_non_code(changed_paths: list[Path]) -> bool:
 def _has_code(changed_paths: list[Path]) -> bool:
     return any(
         classify_file(p) == FileType.CODE
+        # Deleted .txt files cannot be reclassified to detect TSV-like content,
+        # so conservatively run the code rebuild to evict any prior tabular nodes.
         or (not p.exists() and p.suffix.lower() == ".txt")
         for p in changed_paths
     )
