@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 import networkx as nx
 from networkx.readwrite import json_graph
-from graphify.security import sanitize_label
+from graphify.security import sanitize_label, check_graph_file_size_cap
 from graphify.build import edge_data
 
 
@@ -17,6 +17,7 @@ def _load_graph(graph_path: str) -> nx.Graph:
             raise ValueError(f"Graph path must be a .json file, got: {graph_path!r}")
         if not resolved.exists():
             raise FileNotFoundError(f"Graph file not found: {resolved}")
+        check_graph_file_size_cap(resolved)
         safe = resolved
         data = json.loads(safe.read_text(encoding="utf-8"))
         if "links" not in data and "edges" in data:
@@ -48,6 +49,19 @@ def _strip_diacritics(text: str) -> str:
     import unicodedata
     nfkd = unicodedata.normalize("NFKD", text)
     return "".join(c for c in nfkd if not unicodedata.combining(c))
+
+
+def _query_terms(question: str) -> list[str]:
+    """Split a query into searchable terms, filtering only short English terms."""
+    terms: list[str] = []
+    for raw in question.split():
+        term = raw.lower().strip()
+        if not term:
+            continue
+        is_english_only = all("a" <= ch <= "z" for ch in term)
+        if not is_english_only or len(term) > 2:
+            terms.append(term)
+    return terms
 
 
 _EXACT_MATCH_BONUS = 1000.0
@@ -306,7 +320,7 @@ def _query_graph_text(
     token_budget: int = 2000,
     context_filters: list[str] | None = None,
 ) -> str:
-    terms = [t.lower() for t in question.split() if len(t) > 2]
+    terms = _query_terms(question)
     scored = _score_nodes(G, terms)
     start_nodes = _pick_seeds(scored)
     if not start_nodes:

@@ -13,6 +13,7 @@ from graphify.serve import (
     _dfs,
     _filter_graph_by_context,
     _infer_context_filters,
+    _query_terms,
     _query_graph_text,
     _resolve_context_filters,
     _subgraph_to_text,
@@ -77,6 +78,19 @@ def test_score_nodes_source_file_partial():
     scored = _score_nodes(G, ["cluster"])
     nids = [nid for _, nid in scored]
     assert "n2" in nids
+
+
+def test_query_terms_filters_only_short_english_terms():
+    terms = _query_terms("前端 dependency 依赖 install 安装 to of 包管理器 项目约定 a前")
+    assert terms == ["前端", "dependency", "依赖", "install", "安装", "包管理器", "项目约定", "a前"]
+
+
+def test_query_graph_text_keeps_short_non_english_terms():
+    G = nx.Graph()
+    G.add_node("frontend", label="前端", source_file="docs/前端.md", source_location="L1", community=0)
+    text = _query_graph_text(G, "前端", mode="bfs", depth=1)
+    assert "No matching nodes found." not in text
+    assert "NODE 前端" in text
 
 
 def test_infer_context_filters_for_calls_question():
@@ -198,6 +212,32 @@ def test_load_graph_missing_file(tmp_path):
     graphify_dir.mkdir()
     with pytest.raises(SystemExit):
         _load_graph(str(graphify_dir / "nonexistent.json"))
+
+
+def test_load_graph_rejects_oversized_file(monkeypatch, tmp_path, capsys):
+    # #F4: oversized graph.json must fail fast (SystemExit) with a clear error.
+    G = _make_graph()
+    data = json_graph.node_link_data(G, edges="links")
+    p = tmp_path / "graph.json"
+    p.write_text(json.dumps(data))
+    monkeypatch.setattr("graphify.security._MAX_GRAPH_FILE_BYTES", 16)
+    with pytest.raises(SystemExit):
+        _load_graph(str(p))
+    err = capsys.readouterr().err
+    assert "exceeds" in err
+    assert "byte cap" in err
+
+
+def test_load_graph_accepts_under_cap(monkeypatch, tmp_path):
+    # Verifies the cap path does not regress the normal load.
+    G = _make_graph()
+    data = json_graph.node_link_data(G, edges="links")
+    p = tmp_path / "graph.json"
+    p.write_text(json.dumps(data))
+    # Cap well above the actual file size — load proceeds.
+    monkeypatch.setattr("graphify.security._MAX_GRAPH_FILE_BYTES", 10 * 1024 * 1024)
+    G2 = _load_graph(str(p))
+    assert G2.number_of_nodes() == G.number_of_nodes()
 
 
 # --- #874: MCP hot-reload ---
