@@ -7370,6 +7370,14 @@ _TAB_PROJECT_ROOT_MARKERS = {
 _CASE_VARIANT_GLOB_EXTENSIONS = {".tab", ".ini", ".txt"}
 
 
+def _case_variant_glob_patterns(ext: str) -> list[str]:
+    patterns = [""]
+    for ch in ext:
+        variants = [ch.lower(), ch.upper()] if ch.isalpha() else [ch]
+        patterns = [prefix + variant for prefix in patterns for variant in variants]
+    return [f"*{pattern}" for pattern in sorted(set(patterns))]
+
+
 def _normalise_tab_path_value(value: str) -> str:
     return value.strip().strip('"\'').replace("\\", "/")
 
@@ -8942,16 +8950,18 @@ def collect_files(target: Path, *, follow_symlinks: bool = False, root: Path | N
     if not follow_symlinks:
         results: set[Path] = set()
         for ext in sorted(_EXTENSIONS):
-            glob_patterns = [f"*{ext}"]
-            if ext in _CASE_VARIANT_GLOB_EXTENSIONS:
-                glob_patterns.append(f"*{ext.upper()}")
+            glob_patterns = (
+                _case_variant_glob_patterns(ext)
+                if ext in _CASE_VARIANT_GLOB_EXTENSIONS
+                else [f"*{ext}"]
+            )
             for pattern in glob_patterns:
                 results.update(
                     p for p in target.rglob(pattern)
                     if not any(_is_noise_dir(part) for part in p.parts)
                     and not _ignored(p)
                 )
-        for pattern in ("*.txt", "*.TXT"):
+        for pattern in _case_variant_glob_patterns(".txt"):
             results.update(
                 p for p in target.rglob(pattern)
                 if p.is_file()

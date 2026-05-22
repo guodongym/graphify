@@ -27,6 +27,13 @@ def test_collect_files_includes_ini(tmp_path):
     assert path in collect_files(tmp_path)
 
 
+def test_collect_files_includes_mixedcase_ini(tmp_path):
+    path = tmp_path / "WorldMap.Ini"
+    path.write_text("[WorldMap]\nWndType=WndFrame\n", encoding="utf-8")
+
+    assert path in collect_files(tmp_path)
+
+
 def test_extract_ini_finds_sections_parent_type_and_assets(tmp_path):
     ini = tmp_path / "WorldMap.ini"
     ini.write_text(

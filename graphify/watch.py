@@ -175,6 +175,18 @@ def _canonical_graph_for_compare(graph_data: dict) -> dict:
     return canonical
 
 
+def _dedupe_exact_edges(edges: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    out: list[dict] = []
+    for edge in edges:
+        key = json.dumps(edge, sort_keys=True, ensure_ascii=False, default=str)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(edge)
+    return out
+
+
 def _canonical_topology_for_compare(graph_data: dict) -> dict:
     canonical = dict(graph_data)
     canonical.pop("built_at_commit", None)
@@ -426,7 +438,7 @@ def _rebuild_code(
                 ]
                 result = {
                     "nodes": result["nodes"] + preserved_nodes,
-                    "edges": result["edges"] + preserved_edges,
+                    "edges": _dedupe_exact_edges(result["edges"] + preserved_edges),
                     "hyperedges": existing.get("hyperedges", []),
                     "input_tokens": 0,
                     "output_tokens": 0,

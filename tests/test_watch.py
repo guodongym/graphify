@@ -261,6 +261,26 @@ def test_rebuild_code_force_rewrites_metadata_when_topology_unchanged(tmp_path, 
     assert "Built from commit: `22222222`" in second_report
 
 
+def test_rebuild_code_force_rewrites_no_cluster_graph_when_canonical_matches(tmp_path):
+    from graphify import watch as watch_mod
+
+    src = tmp_path / "app.py"
+    src.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    assert watch_mod._rebuild_code(tmp_path, force=True, no_cluster=True)
+    graph_path = tmp_path / "graphify-out" / "graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    first_edge_count = len(graph["links"])
+    graph["built_at_commit"] = "stale"
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+
+    assert watch_mod._rebuild_code(tmp_path, force=True, no_cluster=True)
+
+    rewritten = json.loads(graph_path.read_text(encoding="utf-8"))
+    assert "built_at_commit" not in rewritten
+    assert len(rewritten["links"]) == first_edge_count
+
+
 def test_rebuild_code_changed_tab_keeps_reference_connected_to_preserved_file(tmp_path):
     from graphify.watch import _rebuild_code
 

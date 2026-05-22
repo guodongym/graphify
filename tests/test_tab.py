@@ -42,6 +42,12 @@ def test_collect_files_includes_uppercase_tab(tmp_path):
 
     assert path in collect_files(tmp_path)
 
+def test_collect_files_includes_mixedcase_tab(tmp_path):
+    path = tmp_path / "Config.Tab"
+    path.write_text("ID\tName\n1\tAlpha\n", encoding="utf-8")
+
+    assert path in collect_files(tmp_path)
+
 def test_txt_dispatches_to_tab_extractor(tmp_path):
     path = tmp_path / "config.txt"
     path.write_text("ID\tName\tMode\n1\tAlpha\tactive\n2\tBeta\tinactive\n", encoding="utf-8")
@@ -61,6 +67,12 @@ def test_collect_files_includes_tsv_like_txt(tmp_path):
 
 def test_collect_files_includes_uppercase_tsv_like_txt(tmp_path):
     path = tmp_path / "CONFIG.TXT"
+    path.write_text("ID\tName\n1\tAlpha\n", encoding="utf-8")
+
+    assert path in collect_files(tmp_path)
+
+def test_collect_files_includes_mixedcase_tsv_like_txt(tmp_path):
+    path = tmp_path / "Config.Txt"
     path.write_text("ID\tName\n1\tAlpha\n", encoding="utf-8")
 
     assert path in collect_files(tmp_path)
