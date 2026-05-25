@@ -150,6 +150,44 @@ _CONTEXT_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+_CONTEXT_FILTER_ALIASES: dict[str, str] = {
+    "param": "parameter_type",
+    "params": "parameter_type",
+    "parameter": "parameter_type",
+    "parameters": "parameter_type",
+    "argument": "parameter_type",
+    "arguments": "parameter_type",
+    "arg": "parameter_type",
+    "args": "parameter_type",
+    "return": "return_type",
+    "returns": "return_type",
+    "returned": "return_type",
+    "generic": "generic_arg",
+    "generics": "generic_arg",
+    "template": "generic_arg",
+    "templates": "generic_arg",
+    "annotation": "attribute",
+    "annotations": "attribute",
+    "decorator": "attribute",
+    "decorators": "attribute",
+    "calls": "call",
+    "called": "call",
+    "invoke": "call",
+    "invocation": "call",
+    "fields": "field",
+    "property": "field",
+    "properties": "field",
+    "member": "field",
+    "members": "field",
+    "imports": "import",
+    "imported": "import",
+    "module": "import",
+    "modules": "import",
+    "exports": "export",
+    "exported": "export",
+}
+
+
 def _normalize_context_filters(filters: list[str] | None) -> list[str]:
     if not filters:
         return []
@@ -157,7 +195,10 @@ def _normalize_context_filters(filters: list[str] | None) -> list[str]:
     seen: set[str] = set()
     for value in filters:
         key = _strip_diacritics(str(value)).strip().lower()
-        if key and key not in seen:
+        if not key:
+            continue
+        key = _CONTEXT_FILTER_ALIASES.get(key, key)
+        if key not in seen:
             seen.add(key)
             normalized.append(key)
     return normalized
@@ -402,7 +443,7 @@ def serve(graph_path: str = "graphify-out/graph.json") -> None:
         from mcp import types
         from mcp.types import AnyUrl
     except ImportError as e:
-        raise ImportError("mcp not installed. Run: pip install mcp") from e
+        raise ImportError('mcp not installed. Run: pip install "graphifyy[mcp]"') from e
 
     G = _load_graph(graph_path)
     communities = _communities_from_graph(G)
@@ -644,7 +685,7 @@ def serve(graph_path: str = "graphify-out/graph.json") -> None:
         return "\n".join(lines)
 
     def _tool_god_nodes(arguments: dict) -> str:
-        from .analyze import god_nodes as _god_nodes
+        from graphify.analyze import god_nodes as _god_nodes
         nodes = _god_nodes(G, top_n=int(arguments.get("top_n", 10)))
         lines = ["God nodes (most connected):"]
         lines += [f"  {i}. {n['label']} - {n['degree']} edges" for i, n in enumerate(nodes, 1)]

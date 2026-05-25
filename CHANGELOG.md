@@ -2,9 +2,32 @@
 
 Full release notes with details on each version: [GitHub Releases](https://github.com/safishamsi/graphify/releases)
 
-## 0.8.15+hanhai.0.1 (2026-05-22)
+## 0.8.18+hanhai.0.1 (2026-05-25)
 
-- Internal Hanhai build: carry local structured `.tab` and `.ini` extraction, TSV-like `.txt` routing, and Lua header `.lh` support with static `Include(...)` dependency edges on top of upstream 0.8.15.
+- Internal Hanhai build: carry local structured `.tab` and `.ini` extraction, TSV-like `.txt` routing, and Lua header `.lh` support with static `Include(...)` dependency edges on top of upstream 0.8.18.
+
+## 0.8.18 (2026-05-24)
+
+- Fix: post-commit hook now updates graph after delete-only commits — shrink-guard is bypassed when `changed_paths` contains explicit deletions, preventing stale nodes from accumulating indefinitely (#1000)
+- Fix: `graphify export` (html/obsidian/wiki/svg/graphml/neo4j) no longer collapses to "Single community" when `.graphify_analysis.json` is absent — falls back to per-node `community` attribute already present in `graph.json` (#1001)
+- Fix: Ukrainian README translation updated to v8 — all new sections, correct badges, 31 languages (#995)
+- Feat: semantic context tags on `references` edges for Python/JS/TS/C#/Java — `parameter_type`, `return_type`, `generic_arg`, `attribute`, `field`; C#/Java split `inherits`/`implements`; dedup key now includes context (#996)
+  - **Breaking:** Java `extends` edges are now emitted as `inherits` — queries filtering on `relation="extends"` for Java nodes must be updated to `relation="inherits"`
+- Feat: constrained query expansion in skill — Step 0 extracts actual graph vocab and forces LLM to pick expansion tokens only from that set, preventing hallucinated expansions; Unicode regex fix captures Cyrillic/CJK labels (#998)
+- Docs: Ukrainian README updated to v8 with all new sections, correct badges, YC badge, 31 language count (#995)
+
+## 0.8.17 (2026-05-23)
+
+- Fix: Case-sensitive call resolution for Go, Rust, and Elixir — resolvers previously lowercased both the label index and the callee name, causing `Authorize` to match `authorize` and produce phantom edges; Ruby/C#/Java/Kotlin/Scala/PHP use the same generic resolver which now splits into case-sensitive (all languages) and case-insensitive (PHP only, where function/class names are genuinely case-insensitive) dicts (#993)
+- Fix: Cross-language phantom `calls` edges from semantic extraction dropped at graph-build time — INFERRED `calls` edges whose source and target nodes belong to different language families (py/js/go/rs/jvm/c/cpp/rb/php/cs/swift/lua) are now discarded; skill.md prompt updated with an explicit anti-rule (#991)
+
+## 0.8.16 (2026-05-22)
+
+- Fix: CJK/Unicode labels no longer silently stripped during dedup — `_norm()` and `_norm_label()` now use Unicode-aware `[\W_]+` regex with `casefold()` and NFKC normalization; previously `道具処理クラス` and any non-ASCII label collapsed to empty string and got falsely merged (#937)
+- Fix: `.ets` (ArkTS/HarmonyOS) files now recognized as code and extracted via the TypeScript parser (#926)
+- Fix: `graphify` now exits non-zero when all semantic-extraction chunks fail — previously a silent empty graph was written with exit code 0, masking backend failures (#889)
+- Feat: `graphify install --project` installs the skill into the current repository (`.claude/skills/`, `.agents/skills/`, etc.) instead of the user home directory; per-platform subcommands support the same flag (#931)
+- Docs: Uzbek (uz-UZ) README translation (#982)
 
 ## 0.8.15 (2026-05-22)
 

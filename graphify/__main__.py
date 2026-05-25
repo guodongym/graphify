@@ -1334,7 +1334,7 @@ def _clone_repo(url: str, branch: str | None = None, out_dir: Path | None = None
             print(f"warning: git pull failed:\n{result.stderr}", file=sys.stderr)
     else:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Cloning {url} → {dest} ...", flush=True)
+        print(f"Cloning {url} -> {dest} ...", flush=True)
         cmd = ["git", "clone", "--depth", "1"]
         if branch:
             cmd += ["--branch", branch]
@@ -2439,7 +2439,7 @@ def main() -> None:
             out_data = _jg.node_link_data(merged)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(out_data, indent=2), encoding="utf-8")
-        print(f"Merged {len(graphs)} graphs → {merged.number_of_nodes()} nodes, {merged.number_of_edges()} edges")
+        print(f"Merged {len(graphs)} graphs -> {merged.number_of_nodes()} nodes, {merged.number_of_edges()} edges")
         print(f"Written to: {out_path}")
 
     elif cmd == "clone":
@@ -2623,6 +2623,29 @@ def main() -> None:
         else:
             cohesion = {}
             gods_data = []
+
+        # Fallback: graph.json carries the per-node community as a node attribute
+        # (`to_json` writes it on every node). The analysis sidecar is the
+        # canonical source — but the post-commit / watch rebuild path doesn't
+        # regenerate it, and `extract` may have its temp files cleaned up. When
+        # that happens, `graphify export html` previously bailed with
+        # "Single community - aggregated view not useful." even though the
+        # per-node attribute had the right data all along. Reconstruct from
+        # the graph itself so downstream subcommands (html, obsidian, wiki,
+        # svg, graphml, neo4j) don't silently produce a degraded artifact.
+        if not communities:
+            reconstructed: dict[int, list[str]] = {}
+            for node_id, data in G.nodes(data=True):
+                cid_raw = data.get("community")
+                if cid_raw is None:
+                    continue
+                try:
+                    cid = int(cid_raw)
+                except (TypeError, ValueError):
+                    continue
+                reconstructed.setdefault(cid, []).append(str(node_id))
+            if reconstructed:
+                communities = reconstructed
 
         labels: dict[int, str] = {}
         if labels_path.exists():
