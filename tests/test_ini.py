@@ -100,6 +100,32 @@ def test_extract_ini_decodes_gb18030_and_utf8_bom(tmp_path):
     assert validate_extraction(bom_result) == []
 
 
+def test_extract_ini_decodes_utf16le(tmp_path):
+    ini = tmp_path / "utf16.ini"
+    ini.write_bytes("[面板]\nName=成都\nMode=Active\n".encode("utf-16"))
+
+    result = extract_ini(ini)
+
+    assert "面板" in labels(result)
+    assert "Name" in labels(result)
+    assert "Mode=Active" in labels(result)
+    assert validate_extraction(result) == []
+
+
+def test_extract_ini_decodes_no_bom_cjk_heavy_utf16le(tmp_path):
+    ini = tmp_path / "cjk_utf16.ini"
+    title = "成都扬州苏州南京武汉北京上海广州深圳杭州"
+    ini.write_bytes(f"[面板]\n标题={title}\n模式=激活\n".encode("utf-16-le"))
+
+    result = extract_ini(ini)
+
+    assert "面板" in labels(result)
+    assert "标题" in labels(result)
+    assert f"标题={title}" in labels(result)
+    assert "模式=激活" in labels(result)
+    assert validate_extraction(result) == []
+
+
 def test_extract_ini_limits_duplicate_sections_and_value_noise(tmp_path):
     ini = tmp_path / "settings.ini"
     ini.write_text(
@@ -139,6 +165,23 @@ def test_extract_ini_large_file_warns_and_returns_file_node(tmp_path, monkeypatc
     assert "large.ini" in labels(result)
     assert result.get("truncated") is True
     assert result.get("warnings")
+    assert validate_extraction(result) == []
+
+
+def test_extract_ini_byte_cap_preserves_utf16le_record_boundary(tmp_path, monkeypatch):
+    import graphify.extract as extract_mod
+
+    body = "[面板]\n标题=成都\n模式=激活\n"
+    first_record_len = len("[面板]\n".encode("utf-16-le"))
+    monkeypatch.setattr(extract_mod, "_INI_MAX_BYTES", first_record_len - 1)
+    ini = tmp_path / "large_utf16.ini"
+    ini.write_bytes(body.encode("utf-16-le"))
+
+    result = extract_ini(ini)
+
+    assert "面板" in labels(result)
+    assert result.get("truncated") is True
+    assert not any("decoded with replacement" in warning for warning in result.get("warnings", []))
     assert validate_extraction(result) == []
 
 

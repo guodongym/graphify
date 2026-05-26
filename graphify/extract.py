@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Callable, Any
 from .cache import load_cached, save_cached
 from graphify.detect import CODE_EXTENSIONS
-from graphify.tabular import decode_structured_text, looks_like_tabular_text
+from graphify.source_text import decode_source_text
+from graphify.tabular import looks_like_tabular_text
 
 _RECURSION_LIMIT = 10_000
 
@@ -1583,6 +1584,14 @@ _SWIFT_CONFIG = LanguageConfig(
 
 # ── Generic extractor ─────────────────────────────────────────────────────────
 
+def _read_generic_source_bytes(path: Path, config: LanguageConfig) -> bytes:
+    raw = path.read_bytes()
+    if config.ts_module != "tree_sitter_lua":
+        return raw
+    decoded = decode_source_text(raw, replace=True)
+    return decoded.text.encode("utf-8") if decoded.text is not None else raw
+
+
 def _extract_generic(path: Path, config: LanguageConfig) -> dict:
     """Generic AST extractor driven by LanguageConfig."""
     try:
@@ -1611,7 +1620,7 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
 
     try:
         parser = Parser(language)
-        source = path.read_bytes()
+        source = _read_generic_source_bytes(path, config)
         tree = parser.parse(source)
         root = tree.root_node
     except Exception as e:
@@ -7851,29 +7860,53 @@ _TAB_MAX_VALUE_NODES = 500
 _TAB_MAX_PATH_REFS = 10_000
 
 
-def _decode_tab_bytes(raw: bytes) -> tuple[str, str]:
-    text, encoding = decode_structured_text(raw, replace=True)
-    return text or "", encoding or "utf-8-replace"
+def _decode_tab_bytes(raw: bytes) -> tuple[str, str, list[str]]:
+    result = decode_source_text(raw, replace=True)
+    return result.text or "", result.encoding or "utf-8-replace", list(result.warnings)
+
+
+def _truncate_structured_text_bytes(
+    raw: bytes,
+    max_bytes: int,
+    *,
+    no_record_warning: str,
+) -> tuple[bytes, list[str], bool]:
+    if len(raw) <= max_bytes:
+        return raw, [], False
+
+    warnings = [f"truncated to {max_bytes} bytes"]
+    prefix_with_extra = raw[:max_bytes + 1]
+
+    utf16_record_end = max(
+        prefix_with_extra.rfind(b"\n\x00"),
+        prefix_with_extra.rfind(b"\r\x00"),
+    )
+    if utf16_record_end >= 0:
+        candidate = prefix_with_extra[:utf16_record_end + 2]
+        if decode_source_text(candidate).encoding == "utf-16-le":
+            return candidate, warnings, True
+
+    prefix = raw[:max_bytes]
+    last_newline = max(prefix.rfind(b"\n"), prefix.rfind(b"\r"))
+    if last_newline >= 0:
+        return prefix[:last_newline + 1], warnings, True
+
+    warnings.append(no_record_warning)
+    return b"", warnings, True
 
 
 def _read_tab_text(path: Path) -> tuple[str, list[str], bool]:
     warnings: list[str] = []
-    truncated = False
     with path.open("rb") as f:
         raw = f.read(_TAB_MAX_BYTES + 1)
-    if len(raw) > _TAB_MAX_BYTES:
-        truncated = True
-        warnings.append(f"truncated to {_TAB_MAX_BYTES} bytes")
-        raw = raw[:_TAB_MAX_BYTES]
-        last_newline = max(raw.rfind(b"\n"), raw.rfind(b"\r"))
-        if last_newline >= 0:
-            raw = raw[:last_newline + 1]
-        else:
-            warnings.append("no complete tab-delimited record inside byte limit")
-            raw = b""
-    text, encoding = _decode_tab_bytes(raw)
-    if encoding == "utf-8-replace":
-        warnings.append("decoded with replacement after utf-8/gb18030 failed")
+    raw, truncate_warnings, truncated = _truncate_structured_text_bytes(
+        raw,
+        _TAB_MAX_BYTES,
+        no_record_warning="no complete tab-delimited record inside byte limit",
+    )
+    warnings.extend(truncate_warnings)
+    text, _encoding, decode_warnings = _decode_tab_bytes(raw)
+    warnings.extend(decode_warnings)
     return text, warnings, truncated
 
 
@@ -8276,20 +8309,16 @@ _INI_UI_TYPE_HINTS = (
 
 def _read_ini_text(path: Path) -> tuple[str, list[str], bool]:
     warnings: list[str] = []
-    truncated = False
     with path.open("rb") as f:
         raw = f.read(_INI_MAX_BYTES + 1)
-    if len(raw) > _INI_MAX_BYTES:
-        truncated = True
-        warnings.append(f"truncated to {_INI_MAX_BYTES} bytes")
-        raw = raw[:_INI_MAX_BYTES]
-        last_newline = max(raw.rfind(b"\n"), raw.rfind(b"\r"))
-        raw = raw[:last_newline + 1] if last_newline >= 0 else b""
-        if not raw:
-            warnings.append("no complete ini record inside byte limit")
-    text, encoding = _decode_tab_bytes(raw)
-    if encoding == "utf-8-replace":
-        warnings.append("decoded with replacement after utf-8/gb18030 failed")
+    raw, truncate_warnings, truncated = _truncate_structured_text_bytes(
+        raw,
+        _INI_MAX_BYTES,
+        no_record_warning="no complete ini record inside byte limit",
+    )
+    warnings.extend(truncate_warnings)
+    text, _encoding, decode_warnings = _decode_tab_bytes(raw)
+    warnings.extend(decode_warnings)
     return text, warnings, truncated
 
 
@@ -8659,12 +8688,7 @@ def _read_lua_text(path: Path) -> str | None:
         data = path.read_bytes()
     except OSError:
         return None
-    for encoding in ("utf-8", "gb18030", "gbk"):
-        try:
-            return data.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    return data.decode("utf-8", errors="replace")
+    return decode_source_text(data, replace=True).text
 
 
 def _lua_long_bracket_end(text: str, start: int) -> tuple[int, str] | None:

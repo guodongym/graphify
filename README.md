@@ -487,6 +487,10 @@ graphify extract ./docs --dedup-llm            # LLM tiebreaker for ambiguous en
 graphify extract ./docs --global --as myrepo   # extract and register into the cross-project global graph
 GRAPHIFY_MAX_OUTPUT_TOKENS=32768 graphify extract ./docs --backend claude  # raise output cap for dense corpora
 
+# build a code-only domain graph from an explicit file-list manifest
+graphify extract --manifest graphify-out/domains/skill-core/domain-files.json --output-dir graphify-out/domains/skill-core
+graphify update --manifest graphify-out/domains/skill-core/domain-files.json --output-dir graphify-out/domains/skill-core
+
 graphify export callflow-html                       # graphify-out/<project>-callflow.html
 graphify export callflow-html --max-sections 8      # cap generated architecture sections
 graphify export callflow-html --output docs/arch.html
@@ -519,6 +523,19 @@ graphify cluster-only ./my-project --graph path/to/graph.json  # custom graph lo
 graphify cluster-only ./my-project --resolution 1.5            # more, smaller communities
 graphify cluster-only ./my-project --exclude-hubs 99           # exclude p99 degree nodes from partitioning
 ```
+
+Manifest mode is for callers that already know the exact code files they want
+in a smaller domain graph. The manifest is caller-owned JSON with `repo_root`
+and `files[].path`; use a name like `domain-files.json` so it never collides
+with Graphify's native `graphify-out/manifest.json` state file. `--output-dir`
+writes `graph.json`, `GRAPH_REPORT.md`, and sidecars directly into that
+directory. It is separate from directory-mode `--out`, and cache still follows
+the active native `GRAPHIFY_OUT` layout; there is no manifest `--cache-root`.
+Run only one manifest build/update at a time for a given `--output-dir`; Graphify
+does not lock domain output directories. Manifest state lives in
+`<output-dir>/.graphify_state/update-state.json`; `files` mirrors
+`current_files`, and `files_by_type` mirrors `current_files_by_type`, to keep
+older and explicit readers compatible.
 
 ---
 

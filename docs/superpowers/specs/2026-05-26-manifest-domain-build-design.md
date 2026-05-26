@@ -63,12 +63,15 @@ Graphify 接收一个调用方生成的 JSON file-list manifest。为避免和 G
 - `repo_root` 是绝对路径时直接使用；是相对路径时按 CLI 当前工作目录解析。JX3 wrapper 应从仓库根目录调用 Graphify，或在 manifest 中写入绝对 `repo_root`。
 - `files[].path` 按解析后的 `repo_root` 解析。
 - `repo_root` 是 manifest mode 的扫描边界；manifest mode 不再调用目录发现来扩展文件集合。
+- Graphify 按解析后的 `repo_root` 相对路径对 manifest 文件列表去重；重复写法不会重复进入抽取、输出 state 或报告统计。
+- 空 `files` 列表，或去重后没有任何可接受 AST/code 文件，必须在 build 前明确报错。
 - manifest 可以包含调用方自有的额外字段；Graphify 忽略未知字段。
 - Graphify 必须校验每个文件路径都位于 `repo_root` 下。
 - 文件缺失、已删除或不支持时必须明确报错，不能静默回退到扫描父目录。
 - Graphify 必须用原生文件分类和 AST/code extractor 能力校验 manifest 文件。Phase 0 只接受分类为 `code` 且已有 AST/code extractor 的文件；`document`、`paper`、`image`、`video`、unknown 或当前无 extractor 的文件必须在写输出前报错，并提示改用原生 directory `extract` 或后续 Phase。
 - Graphify 内部传递给 extractor、graph payload 和 update state 的 source path 必须归一化为 `repo_root` 相对路径；允许 manifest 输入绝对路径或相对路径，但不能让两种写法在 `source_file`、cache key 或 prune 逻辑里形成不同身份。
 - manifest 文件由调用方拥有；Graphify 只能读取，不能修改或覆盖该文件。
+- manifest 文件本身不能出现在 `files[]` 中；caller-owned 输入清单不是 domain source 文件。
 - Graphify 原生 `graphify-out/manifest.json` 继续只表示目录模式内部增量状态；manifest mode 不能改变它的语义或写入路径。
 - 如果 `--manifest` 解析后指向 `<repo_root>/graphify-out/manifest.json`，Graphify 必须拒绝执行并给出明确错误，不能把原生增量状态文件当成 domain file-list input。
 
@@ -95,6 +98,7 @@ graphify update \
 - `--manifest` 存在时 `--output-dir` 必填；缺失必须明确报错，不能默认写入 `GRAPHIFY_OUT` 或当前目录。
 - `--output-dir` 只用于 manifest mode；未传 `--manifest` 时传入 `--output-dir` 必须明确报错并提示目录模式继续使用 `--out`，避免改变 `graphify extract <path> --out DIR` 写入 `<DIR>/graphify-out/` 的原生语义。
 - manifest mode 不暴露 `--cache-root`；cache 继续按 Graphify 原生 active `GRAPHIFY_OUT` 规则使用共享 cache。默认是 `repo_root/graphify-out/cache`；如果环境中设置了 `GRAPHIFY_OUT`，则按现有原生 cache 解析规则使用对应 cache。
+- manifest mode 下未识别的 `--xxx` 或 `-x` 选项必须明确拒绝，不能静默忽略。
 - `--manifest` 和 positional `<path>` 互斥；`graphify extract <path> --manifest ...` 或 `graphify update <path> --manifest ...` 必须明确报错，不能同时存在两个 source of truth。
 - manifest-driven `extract` 对 manifest 文件列表执行 full AST/code build，并在成功后初始化 `<output-dir>/.graphify_state/update-state.json`。manifest 文件全为 code-like 文件时，不需要 LLM backend API key。
 - manifest-driven `update` 只更新 manifest 文件列表，不扫描 `repo_root` 或仓库根目录；如果 `<output-dir>/.graphify_state/update-state.json` 不存在，必须退化为 manifest full rebuild 并初始化 state，不能读取原生 `graphify-out/manifest.json`。
@@ -121,9 +125,11 @@ Graphify 拥有：
 
 manifest mode 下，Graphify 不能写 `<output-dir>/graphify-out/`。它必须直接写入 `<output-dir>`。
 
-manifest-driven update 必须维护 Graphify-owned domain state。该状态不能写回或覆盖调用方 manifest，只能使用 `<output-dir>/.graphify_state/update-state.json` 这类 Graphify-owned sidecar，不能读取或写入原生 `graphify-out/manifest.json`。该状态必须至少能记录上一轮 manifest 文件集合，且文件身份必须使用 `repo_root` 相对路径，使 `update --manifest` 能删除已从 manifest 移除但仍存在于 repo 的旧 source_file 节点和边。
+manifest-driven update 必须维护 Graphify-owned domain state。该状态不能写回或覆盖调用方 manifest，只能使用 `<output-dir>/.graphify_state/update-state.json` 这类 Graphify-owned sidecar，不能读取或写入原生 `graphify-out/manifest.json`。该状态必须至少能记录上一轮 manifest 文件集合，且文件身份必须使用 `repo_root` 相对路径，使 `update --manifest` 能删除已从 manifest 移除但仍存在于 repo 的旧 source_file 节点和边。state schema 中 `files` 与 `current_files` 表达相同当前文件集合，`files_by_type` 与 `current_files_by_type` 表达相同当前类型分组；保留两组字段是为了兼容旧读法和更明确的当前状态读法。
 
 cache 继续复用原生共享 cache，并尊重 active `GRAPHIFY_OUT`。多个 domain graph 引用同一个源文件时，应复用同一份按文件内容和 repo-relative path 命中的 cache，而不是按 domain output directory 拆分 cache。
+
+Phase 0 manifest mode 不提供 output-dir 写锁；同一个 `<output-dir>` 不能并发执行多个 `extract --manifest` 或 `update --manifest`。调用方如果需要并发生成多个 domain graph，应使用不同输出目录，或在调用层串行化同一输出目录。
 
 ## Source Decoding
 

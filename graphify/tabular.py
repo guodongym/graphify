@@ -4,22 +4,17 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
+from graphify.source_text import decode_source_text
+
 _TABULAR_SAMPLE_BYTES = 64 * 1024
 _TABULAR_SAMPLE_LINES = 256
 _TABULAR_MIN_TAB_RATIO = 0.8
 _TABULAR_MIN_STABLE_RATIO = 0.8
-_STRUCTURED_TEXT_ENCODINGS = ("utf-8-sig", "utf-8", "gb18030")
 
 
 def decode_structured_text(raw: bytes, *, replace: bool = False) -> tuple[str | None, str | None]:
-    for enc in _STRUCTURED_TEXT_ENCODINGS:
-        try:
-            return raw.decode(enc), enc
-        except UnicodeDecodeError:
-            continue
-    if replace:
-        return raw.decode("utf-8", errors="replace"), "utf-8-replace"
-    return None, None
+    result = decode_source_text(raw, replace=replace)
+    return result.text, result.encoding
 
 
 def _decode_sample(raw: bytes) -> str | None:

@@ -134,6 +134,18 @@ def test_extract_tab_decodes_gb18030(tmp_path):
     assert validate_extraction(result) == []
 
 
+def test_utf16le_tsv_like_txt_dispatches_and_decodes(tmp_path):
+    path = tmp_path / "sample_utf16.txt"
+    body = "ID\tName\n1\t成都\n"
+    path.write_bytes(body.encode("utf-16-le"))
+
+    result = extract([path], cache_root=tmp_path, parallel=False)
+
+    assert "ID 1" in labels(result)
+    assert "Name (column)" in labels(result)
+    assert validate_extraction(result) == []
+
+
 def test_extract_tab_decodes_utf8_bom(tmp_path):
     path = tmp_path / "bom.tab"
     path.write_bytes("ID\tName\n1\tAlpha\n".encode("utf-8-sig"))
@@ -141,6 +153,17 @@ def test_extract_tab_decodes_utf8_bom(tmp_path):
     result = extract_tab(path)
 
     assert "ID 1" in labels(result)
+    assert validate_extraction(result) == []
+
+
+def test_extract_tab_rejects_embedded_nul_text_and_warns(tmp_path):
+    path = tmp_path / "nul.tab"
+    path.write_bytes(b"ID\x00\tName\x00\n1\x00\tAlpha\x00\n")
+
+    result = extract_tab(path)
+
+    assert all("\x00" not in label for label in labels(result))
+    assert result.get("warnings")
     assert validate_extraction(result) == []
 
 
@@ -504,4 +527,22 @@ def test_tab_byte_cap_does_not_decode_partial_record(tmp_path, monkeypatch, caps
     assert "error" not in result
     captured = capsys.readouterr()
     assert "warning" in captured.err.lower()
+    assert validate_extraction(result) == []
+
+
+def test_tab_byte_cap_preserves_utf16le_record_boundary(tmp_path, monkeypatch):
+    import graphify.extract as gx
+
+    body = "ID\tName\n1\t成都\n2\t扬州\n"
+    first_record_len = len("ID\tName\n".encode("utf-16-le"))
+    monkeypatch.setattr(gx, "_TAB_MAX_BYTES", first_record_len - 1)
+    path = tmp_path / "utf16-large.tab"
+    path.write_bytes(body.encode("utf-16-le"))
+
+    result = extract_tab(path)
+
+    assert "ID (column)" in labels(result)
+    assert "Name (column)" in labels(result)
+    assert result.get("truncated") is True
+    assert not any("decoded with replacement" in warning for warning in result.get("warnings", []))
     assert validate_extraction(result) == []

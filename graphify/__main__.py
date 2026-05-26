@@ -42,6 +42,238 @@ def _enforce_graph_size_cap_or_exit(gp: Path) -> None:
         sys.exit(1)
 
 
+_MANIFEST_UNSUPPORTED_VALUE_OPTIONS = {
+    "--api-timeout",
+    "--as",
+    "--backend",
+    "--exclude",
+    "--exclude-hubs",
+    "--max-concurrency",
+    "--model",
+    "--resolution",
+    "--token-budget",
+}
+
+
+def _parse_manifest_cli_args(args: list[str]) -> dict:
+    parsed: dict = {
+        "manifest": None,
+        "output_dir": None,
+        "out": None,
+        "positionals": [],
+        "no_cluster": False,
+        "max_workers": None,
+        "unsupported": [],
+        "unknown_options": [],
+    }
+
+    def _required_value(option: str, index: int, kind: str) -> str:
+        if index + 1 >= len(args) or args[index + 1].startswith("--"):
+            raise ValueError(f"{option} requires a {kind}")
+        return args[index + 1]
+
+    def _record_unsupported_value_option(option: str, index: int) -> int:
+        parsed["unsupported"].append(option)
+        if index + 1 < len(args) and not args[index + 1].startswith("--"):
+            return index + 2
+        return index + 1
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--manifest":
+            parsed["manifest"] = _required_value("--manifest", i, "path")
+            i += 2
+        elif arg.startswith("--manifest="):
+            value = arg.split("=", 1)[1]
+            if not value:
+                raise ValueError("--manifest requires a path")
+            parsed["manifest"] = value
+            i += 1
+        elif arg == "--output-dir":
+            parsed["output_dir"] = _required_value("--output-dir", i, "path")
+            i += 2
+        elif arg.startswith("--output-dir="):
+            value = arg.split("=", 1)[1]
+            if not value:
+                raise ValueError("--output-dir requires a path")
+            parsed["output_dir"] = value
+            i += 1
+        elif arg == "--out":
+            parsed["out"] = "--out"
+            if i + 1 < len(args) and not args[i + 1].startswith("--"):
+                i += 2
+            else:
+                i += 1
+        elif arg.startswith("--out="):
+            parsed["out"] = "--out"
+            i += 1
+        elif arg == "--max-workers":
+            value = _required_value("--max-workers", i, "value")
+            try:
+                parsed["max_workers"] = int(value)
+            except ValueError as exc:
+                raise ValueError("--max-workers must be a positive integer") from exc
+            i += 2
+        elif arg.startswith("--max-workers="):
+            try:
+                parsed["max_workers"] = int(arg.split("=", 1)[1])
+            except ValueError as exc:
+                raise ValueError("--max-workers must be a positive integer") from exc
+            i += 1
+        elif arg == "--no-cluster":
+            parsed["no_cluster"] = True
+            i += 1
+        elif arg == "--cache-root":
+            parsed["unsupported"].append("--cache-root")
+            if i + 1 < len(args) and not args[i + 1].startswith("--"):
+                i += 2
+            else:
+                i += 1
+        elif arg.startswith("--cache-root="):
+            parsed["unsupported"].append("--cache-root")
+            i += 1
+        elif arg in _MANIFEST_UNSUPPORTED_VALUE_OPTIONS:
+            i = _record_unsupported_value_option(arg, i)
+        elif any(arg.startswith(option + "=") for option in _MANIFEST_UNSUPPORTED_VALUE_OPTIONS):
+            parsed["unsupported"].append(arg.split("=", 1)[0])
+            i += 1
+        elif arg.startswith("-"):
+            parsed["unknown_options"].append(arg.split("=", 1)[0])
+            i += 1
+        else:
+            parsed["positionals"].append(arg)
+            i += 1
+    if parsed["max_workers"] is not None and parsed["max_workers"] <= 0:
+        raise ValueError("--max-workers must be > 0")
+    return parsed
+
+
+def _resolve_cli_path(path_value: str) -> Path:
+    path = Path(path_value)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path.resolve()
+
+
+def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
+    try:
+        parsed = _parse_manifest_cli_args(args)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    manifest_arg = parsed["manifest"]
+    output_dir_arg = parsed["output_dir"]
+    if manifest_arg is None and output_dir_arg is None:
+        return False
+    if parsed["out"] is not None:
+        print(
+            "error: --out is directory-mode only; use --output-dir with --manifest.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if manifest_arg is None:
+        hint = " Use --out DIR for directory-mode extract." if command == "extract" else ""
+        print(f"error: --output-dir requires --manifest.{hint}", file=sys.stderr)
+        sys.exit(2)
+    if output_dir_arg is None:
+        print("error: --manifest requires --output-dir.", file=sys.stderr)
+        sys.exit(2)
+    if parsed["unknown_options"]:
+        option = parsed["unknown_options"][0]
+        print(f"error: unknown manifest option: {option}", file=sys.stderr)
+        sys.exit(2)
+    if parsed["unsupported"]:
+        option = parsed["unsupported"][0]
+        print(
+            f"error: {option} is not supported with --manifest; "
+            "manifest mode only accepts --manifest, --output-dir, and --max-workers.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if parsed["positionals"]:
+        print(
+            f"error: positional <path> and --manifest are mutually exclusive for graphify {command}.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if parsed["no_cluster"]:
+        print(
+            "error: --no-cluster is not supported with --manifest because "
+            "manifest mode always writes GRAPH_REPORT.md.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    from graphify.code_build_runner import build_code_graph
+    from graphify.manifest import DomainManifestError, load_domain_manifest
+
+    try:
+        domain = load_domain_manifest(manifest_arg, cwd=Path.cwd())
+        result = build_code_graph(
+            code_files=domain.source_paths,
+            repo_root=domain.repo_root,
+            output_dir=_resolve_cli_path(output_dir_arg),
+            mode=command,
+            files_by_type=domain.files_by_type,
+            relative_source_paths=domain.relative_source_paths,
+            relative_files_by_type=domain.relative_files_by_type,
+            max_workers=parsed["max_workers"],
+        )
+    except DomainManifestError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as exc:
+        print(f"[graphify {command}] error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(
+        f"[graphify {command}] wrote {result.graph_json} and {result.report}: "
+        f"{result.node_count} nodes, {result.edge_count} edges, "
+        f"{result.community_count} communities"
+    )
+    return True
+
+
+def _print_update_help() -> None:
+    print("Usage:")
+    print("  graphify update [path] [--force] [--no-cluster]")
+    print("  graphify update --manifest FILE --output-dir DIR [--max-workers N]")
+    print()
+    print("Manifest mode:")
+    print("  --manifest FILE       caller-owned domain file list, e.g. domain-files.json")
+    print("  --output-dir DIR      exact output directory; writes DIR/graph.json directly")
+    print("  --max-workers N       AST extraction subprocess count")
+    print()
+    print("Rules:")
+    print("  --manifest and positional path are mutually exclusive")
+    print("  --output-dir is required with --manifest and rejected without --manifest")
+    print("  --no-cluster is directory-mode only; manifest mode always writes GRAPH_REPORT.md")
+    print("  manifest mode reuses the native GRAPHIFY_OUT cache; no --cache-root option")
+
+
+def _print_extract_help() -> None:
+    print("Usage:")
+    print("  graphify extract <path> [--backend B] [--model M] [--out DIR]")
+    print("  graphify extract --manifest FILE --output-dir DIR [--max-workers N]")
+    print()
+    print("Manifest mode:")
+    print("  --manifest FILE       caller-owned domain file list, e.g. domain-files.json")
+    print("  --output-dir DIR      exact output directory; writes DIR/graph.json directly")
+    print("  --max-workers N       AST extraction subprocess count")
+    print()
+    print("Directory mode:")
+    print("  --out DIR             writes <DIR>/graphify-out/ (unchanged native behavior)")
+    print()
+    print("Rules:")
+    print("  --manifest and positional path are mutually exclusive")
+    print("  --out is directory-mode only; use --output-dir with --manifest")
+    print("  --output-dir is manifest-mode only and rejected without --manifest")
+    print("  --no-cluster is directory-mode only; manifest mode always writes GRAPH_REPORT.md")
+    print("  manifest mode reuses the native GRAPHIFY_OUT cache; no --cache-root option")
+
+
 def _check_skill_version(skill_dst: Path) -> None:
     """Warn if the installed skill is from an older graphify version."""
     version_file = skill_dst.parent / ".graphify_version"
@@ -1395,9 +1627,11 @@ def main() -> None:
         print("    --dir <path>            target directory (default: ./raw)")
         print("  watch <path>            watch a folder and rebuild the graph on code changes")
         print("  update <path>           re-extract code files and update the graph (no LLM needed)")
+        print("  update --manifest FILE --output-dir DIR")
+        print("                            rebuild a manifest-scoped code graph directly in DIR")
         print("    --force                 overwrite graph.json even if the rebuild has fewer nodes")
         print("                            (also: GRAPHIFY_FORCE=1 env var; use after refactors that delete code)")
-        print("    --no-cluster            skip clustering, write raw extraction only")
+        print("    --no-cluster            directory-mode only; unsupported with --manifest")
         print("  cluster-only <path>     rerun clustering on an existing graph.json and regenerate report")
         print("    --no-viz                skip graph.html generation (useful for >5000 node graphs / CI)")
         print("    --graph <path>          path to graph.json (default <path>/graphify-out/graph.json)")
@@ -1425,15 +1659,18 @@ def main() -> None:
         print("    --top-k-edges N         per-symbol outbound edges in inspector (default 12)")
         print("    --label NAME            project label in header")
         print("  extract <path>          headless full extraction (AST + semantic LLM) for CI/scripts")
+        print("  extract --manifest FILE --output-dir DIR")
+        print("                            build a manifest-scoped code graph directly in DIR")
         print("    --backend B             gemini|kimi|claude|openai|deepseek|ollama (default: whichever API key is set)")
         print("    --model M               override backend default model")
         print("    --max-workers N         AST extraction subprocess count (default: cpu_count)")
         print("    --token-budget N        per-chunk token cap for semantic extraction (default: 60000)")
         print("    --max-concurrency N     parallel semantic chunks in flight (default: 4; set 1 for local LLMs)")
         print("    --api-timeout S         per-request timeout in seconds for the LLM client (default: 600)")
-        print("    --out DIR               output dir (default: <path>); writes <DIR>/graphify-out/")
+        print("    --out DIR               directory-mode output dir; writes <DIR>/graphify-out/")
+        print("    --output-dir DIR        manifest-mode output dir; writes DIR/graph.json directly")
         print("    --google-workspace      export .gdoc/.gsheet/.gslides shortcuts via gws before extraction")
-        print("    --no-cluster            skip clustering, write raw extraction only")
+        print("    --no-cluster            directory-mode only; unsupported with --manifest")
         print("    --global                also merge the resulting graph into the global graph")
         print("    --as <tag>              repo tag for --global (default: target directory name)")
         print("  global add <graph.json>  add/update a project graph in the global graph (~/.graphify/global-graph.json)")
@@ -1490,6 +1727,12 @@ def main() -> None:
     # "install"/"uninstall" which have their own per-subcommand help handlers.
     _FREE_TEXT_CMDS = {"query", "explain", "path", "save-result", "install", "uninstall"}
     if cmd not in _FREE_TEXT_CMDS and any(a in {"-h", "--help", "-?"} for a in sys.argv[2:]):
+        if cmd == "extract":
+            _print_extract_help()
+            return
+        if cmd == "update":
+            _print_update_help()
+            return
         print(f"Run 'graphify --help' for full usage.")
         return
 
@@ -2221,6 +2464,8 @@ def main() -> None:
                 print(f"Done — {len(communities)} communities. GRAPH_REPORT.md and graph.json updated.")
 
     elif cmd == "update":
+        if _maybe_run_manifest_code_build("update", sys.argv[2:]):
+            sys.exit(0)
         force = os.environ.get("GRAPHIFY_FORCE", "").lower() in ("1", "true", "yes")
         no_cluster = False
         args = sys.argv[2:]
@@ -2792,6 +3037,8 @@ def main() -> None:
             print("Usage: graphify global [add|remove|list|path]", file=sys.stderr); sys.exit(1)
 
     elif cmd == "extract":
+        if _maybe_run_manifest_code_build("extract", sys.argv[2:]):
+            sys.exit(0)
         # Headless full-pipeline extraction for CI / scripts (#698).
         # Runs detect -> AST extraction on code -> semantic LLM extraction on
         # docs/papers/images -> merge -> build -> cluster -> write outputs.

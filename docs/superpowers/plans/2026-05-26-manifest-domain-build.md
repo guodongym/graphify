@@ -278,8 +278,12 @@ Record:
 
 - [ ] No JX3 business routing, school, skill, or eval-set logic was added to Graphify.
 - [ ] Manifest mode consumes only `files[].path`.
+- [ ] Manifest loader deduplicates resolved repo-relative file identities before extraction/state output.
+- [ ] Empty manifest file lists fail clearly before graph build starts.
+- [ ] Manifest self-reference, Unicode paths, and symlink boundaries are covered by tests.
+- [ ] Unknown manifest-mode CLI options are rejected clearly.
 - [ ] Caller-owned domain file lists use names like `domain-files.json`; native `graphify-out/manifest.json` remains untouched and keeps its existing directory-mode meaning.
-- [ ] `--manifest <repo_root>/graphify-out/manifest.json` is rejected and never treated as a caller-owned domain file list.
+- [ ] `--manifest <repo_root>/graphify-out/manifest.json` and active `GRAPHIFY_OUT/manifest.json` are rejected and never treated as caller-owned domain file lists.
 - [ ] Manifest mode never falls back to directory scan after manifest failure.
 - [ ] Relative `--output-dir` is resolved from CLI cwd; absolute `--output-dir` is used unchanged.
 - [ ] Manifest mode requires `--output-dir`, while directory mode rejects `--output-dir` and keeps `--out`.
@@ -288,6 +292,8 @@ Record:
 - [ ] No manifest-mode `--cache-root` was added; cache remains Graphify-owned and shared under active `GRAPHIFY_OUT` native cache layout.
 - [ ] Manifest update prunes files removed from the caller manifest.
 - [ ] Manifest state and graph `source_file` values use normalized `repo_root` relative paths, so absolute and relative manifest entries do not fork identity.
+- [ ] Manifest state schema documents that `files` mirrors `current_files`, and `files_by_type` mirrors `current_files_by_type`.
+- [ ] Callers are told not to run concurrent manifest writes against the same `--output-dir`.
 - [ ] Unsupported manifest files fail clearly before outputs are written.
 - [ ] Manifest-driven update has parity with manifest-driven extract.
 - [ ] Source decoding handles GB18030 and UTF-16LE without silent UTF-8 replacement.

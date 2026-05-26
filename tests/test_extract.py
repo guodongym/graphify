@@ -750,6 +750,26 @@ def test_lua_include_edges_decode_gb18030_paths(tmp_path):
     assert ("main.lh", "SceneCustomValueName.lh", "include") in include_edges
 
 
+def test_lua_include_edges_decode_utf16le_source(tmp_path):
+    main = tmp_path / "main.lh"
+    target = tmp_path / "Target.lh"
+    main.write_bytes('Include("Target.lh")\nfunction Boot() end\n'.encode("utf-16-le"))
+    target.write_text("function TargetFn() end\n", encoding="utf-8")
+
+    result = extract([main, target], cache_root=tmp_path, parallel=False)
+
+    by_id = {n["id"]: n for n in result["nodes"]}
+    include_edges = [
+        (by_id[e["source"]]["label"], by_id[e["target"]]["label"], e.get("context"))
+        for e in result["edges"]
+        if e["relation"] == "imports_from"
+    ]
+    assert ("main.lh", "Target.lh", "include") in include_edges
+    labels = {n["label"] for n in result["nodes"]}
+    assert "Boot()" in labels
+    assert "TargetFn()" in labels
+
+
 def test_extract_bash_finds_functions():
     result = extract_bash(FIXTURES / "sample.sh")
     assert "error" not in result
