@@ -9517,6 +9517,13 @@ def collect_files(target: Path, *, follow_symlinks: bool = False, root: Path | N
     def _ignored(p: Path) -> bool:
         return bool(patterns and _is_ignored(p, ignore_root, patterns))
 
+    def _has_noise_dir_under_target(p: Path) -> bool:
+        try:
+            parts = p.relative_to(target).parts
+        except ValueError:
+            parts = p.parts
+        return any(_is_noise_dir(part) for part in parts[:-1])
+
     if not follow_symlinks:
         results: set[Path] = set()
         for ext in sorted(_EXTENSIONS):
@@ -9528,7 +9535,7 @@ def collect_files(target: Path, *, follow_symlinks: bool = False, root: Path | N
             for pattern in glob_patterns:
                 results.update(
                     p for p in target.rglob(pattern)
-                    if not any(_is_noise_dir(part) for part in p.parts)
+                    if not _has_noise_dir_under_target(p)
                     and not _ignored(p)
                 )
         for pattern in _case_variant_glob_patterns(".txt"):
@@ -9536,7 +9543,7 @@ def collect_files(target: Path, *, follow_symlinks: bool = False, root: Path | N
                 p for p in target.rglob(pattern)
                 if p.is_file()
                 and p.suffix.lower() == ".txt"
-                and not any(_is_noise_dir(part) for part in p.parts)
+                and not _has_noise_dir_under_target(p)
                 and not _ignored(p)
                 and looks_like_tabular_text(p)
             )
