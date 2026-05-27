@@ -118,9 +118,21 @@ def test_manifest_flags_are_documented_in_subcommand_help(
     assert f"graphify {command} --manifest FILE --output-dir DIR" in result.stdout
     assert "--manifest FILE" in result.stdout
     assert "--output-dir DIR" in result.stdout
+    assert "--sidecar-db PATH" in result.stdout
     assert "domain-files.json" in result.stdout
     assert "GRAPHIFY_OUT cache" in result.stdout
     assert "no --cache-root option" in result.stdout
+
+
+def test_sidecar_command_help_is_routed_to_sidecar_parser(tmp_path: Path) -> None:
+    result = _run(["sidecar", "--help"], cwd=tmp_path, home=tmp_path / ".home")
+
+    assert result.returncode == 0
+    assert "usage: graphify sidecar" in result.stdout.lower()
+    assert "search" in result.stdout
+    assert "resolve" in result.stdout
+    assert "query" in result.stdout
+    assert "--sidecar-db" in result.stdout
 
 
 def test_native_update_writes_default_graphify_out_layout_and_manifest(

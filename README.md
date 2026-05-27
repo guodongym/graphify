@@ -492,9 +492,15 @@ graphify extract ./docs --dedup-llm            # LLM tiebreaker for ambiguous en
 graphify extract ./docs --global --as myrepo   # extract and register into the cross-project global graph
 GRAPHIFY_MAX_OUTPUT_TOKENS=32768 graphify extract ./docs --backend claude  # raise output cap for dense corpora
 
-# build a code-only domain graph from an explicit file-list manifest
+# build a domain graph from an explicit file-list manifest
 graphify extract --manifest graphify-out/domains/skill-core/domain-files.json --output-dir graphify-out/domains/skill-core
 graphify update --manifest graphify-out/domains/skill-core/domain-files.json --output-dir graphify-out/domains/skill-core
+graphify extract --manifest graphify-out/domains/skill-core/domain-files.json --output-dir graphify-out/domains/skill-core --sidecar-db graphify-out/sidecar/tabular.sqlite
+
+# inspect tabular sidecar rows written by manifest builds
+graphify sidecar search --graph graphify-out/domains/skill-core/graph.json --column SkillID --value 100
+graphify sidecar resolve --graph graphify-out/domains/skill-core/graph.json sidecar://tabular/<repo>/<file>/<row>/<line_hash>
+graphify sidecar query --graph graphify-out/domains/skill-core/graph.json --sql "SELECT source_file, row_no FROM current_domain_rows LIMIT 5"
 
 graphify export callflow-html                       # graphify-out/<project>-callflow.html
 graphify export callflow-html --max-sections 8      # cap generated architecture sections
@@ -533,9 +539,15 @@ Manifest mode is for callers that already know the exact code files they want
 in a smaller domain graph. The manifest is caller-owned JSON with `repo_root`
 and `files[].path`; use a name like `domain-files.json` so it never collides
 with Graphify's native `graphify-out/manifest.json` state file. `--output-dir`
-writes `graph.json`, `GRAPH_REPORT.md`, and sidecars directly into that
+writes `graph.json`, `GRAPH_REPORT.md`, and per-domain state directly into that
 directory. It is separate from directory-mode `--out`, and cache still follows
 the active native `GRAPHIFY_OUT` layout; there is no manifest `--cache-root`.
+Tabular files can opt into `tabular_policy: "sidecar"` or `auto`; sidecar-active
+files are stored in a shared SQLite DB at `GRAPHIFY_OUT/sidecar/tabular.sqlite`
+by default, or at `--sidecar-db PATH` when explicitly provided. The graph keeps
+file/table/column/anchor/path-ref skeleton nodes and `sidecar_ref` metadata,
+while full rows are resolved through `graphify sidecar search`, `resolve`, or
+the constrained read-only `query` debug/eval surface.
 Run only one manifest build/update at a time for a given `--output-dir`; Graphify
 does not lock domain output directories. Manifest state lives in
 `<output-dir>/.graphify_state/update-state.json`; `files` mirrors

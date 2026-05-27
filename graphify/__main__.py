@@ -271,11 +271,12 @@ def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
 def _print_update_help() -> None:
     print("Usage:")
     print("  graphify update [path] [--force] [--no-cluster]")
-    print("  graphify update --manifest FILE --output-dir DIR [--max-workers N]")
+    print("  graphify update --manifest FILE --output-dir DIR [--sidecar-db PATH] [--max-workers N]")
     print()
     print("Manifest mode:")
     print("  --manifest FILE       caller-owned domain file list, e.g. domain-files.json")
     print("  --output-dir DIR      exact output directory; writes DIR/graph.json directly")
+    print("  --sidecar-db PATH     override shared tabular sidecar SQLite DB path")
     print("  --max-workers N       AST extraction subprocess count")
     print()
     print("Rules:")
@@ -288,11 +289,12 @@ def _print_update_help() -> None:
 def _print_extract_help() -> None:
     print("Usage:")
     print("  graphify extract <path> [--backend B] [--model M] [--out DIR]")
-    print("  graphify extract --manifest FILE --output-dir DIR [--max-workers N]")
+    print("  graphify extract --manifest FILE --output-dir DIR [--sidecar-db PATH] [--max-workers N]")
     print()
     print("Manifest mode:")
     print("  --manifest FILE       caller-owned domain file list, e.g. domain-files.json")
     print("  --output-dir DIR      exact output directory; writes DIR/graph.json directly")
+    print("  --sidecar-db PATH     override shared tabular sidecar SQLite DB path")
     print("  --max-workers N       AST extraction subprocess count")
     print()
     print("Directory mode:")
@@ -1719,6 +1721,7 @@ def main() -> None:
         print("  update <path>           re-extract code files and update the graph (no LLM needed)")
         print("  update --manifest FILE --output-dir DIR")
         print("                            rebuild a manifest-scoped code graph directly in DIR")
+        print("    --sidecar-db PATH       override shared tabular sidecar SQLite DB path")
         print("    --force                 overwrite graph.json even if the rebuild has fewer nodes")
         print("                            (also: GRAPHIFY_FORCE=1 env var; use after refactors that delete code)")
         print("    --no-cluster            directory-mode only; unsupported with --manifest")
@@ -1754,6 +1757,7 @@ def main() -> None:
         print("    --backend B             gemini|kimi|claude|openai|deepseek|ollama (default: whichever API key is set)")
         print("    --model M               override backend default model")
         print("    --max-workers N         AST extraction subprocess count (default: cpu_count)")
+        print("    --sidecar-db PATH       override shared tabular sidecar SQLite DB path")
         print("    --token-budget N        per-chunk token cap for semantic extraction (default: 60000)")
         print("    --max-concurrency N     parallel semantic chunks in flight (default: 4; set 1 for local LLMs)")
         print("    --api-timeout S         per-request timeout in seconds for the LLM client (default: 600)")
@@ -1768,6 +1772,8 @@ def main() -> None:
         print("  global remove <tag>      remove a repo's nodes from the global graph")
         print("  global list              list repos in the global graph")
         print("  global path              print path to the global graph file")
+        print("  sidecar search|resolve|query")
+        print("                            inspect tabular sidecar rows from graph-aware metadata")
         print("  benchmark [graph.json]  measure token reduction vs naive full-corpus approach")
         print("  export callflow-html    emit Mermaid-based architecture/call-flow HTML")
         print("  hook install            install post-commit/post-checkout git hooks (all platforms)")
@@ -1825,6 +1831,9 @@ def main() -> None:
         if cmd == "update":
             _print_update_help()
             return
+        if cmd == "sidecar":
+            from graphify.sidecar_cli import main as _sidecar_main
+            sys.exit(_sidecar_main(sys.argv[2:]))
         print(f"Run 'graphify --help' for full usage.")
         return
 

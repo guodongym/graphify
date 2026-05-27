@@ -132,19 +132,31 @@ class _SidecarArgumentParser(argparse.ArgumentParser):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = _SidecarArgumentParser(prog="graphify sidecar")
+    parser = _SidecarArgumentParser(
+        prog="graphify sidecar",
+        description="Inspect tabular sidecar rows produced by manifest builds.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  graphify sidecar search --graph graphify-out/domains/skill/graph.json --column SkillID --value 100\n"
+            "  graphify sidecar resolve --graph graphify-out/domains/skill/graph.json sidecar://tabular/...\n"
+            "  graphify sidecar query --graph graphify-out/domains/skill/graph.json --sql \"SELECT * FROM current_domain_rows LIMIT 5\"\n"
+            "\n"
+            "Use --sidecar-db PATH or --db PATH to override the graph metadata DB hint."
+        ),
+    )
     sub = parser.add_subparsers(
         dest="cmd",
         required=True,
         parser_class=_SidecarArgumentParser,
     )
-    resolve = sub.add_parser("resolve")
+    resolve = sub.add_parser("resolve", help="resolve a sidecar://tabular row reference")
     resolve.add_argument("sidecar_ref")
     resolve.add_argument("--graph")
     resolve.add_argument("--sidecar-db", "--db", dest="sidecar_db")
     resolve.add_argument("--domain")
     resolve.add_argument("--global-debug", action="store_true")
-    search = sub.add_parser("search")
+    search = sub.add_parser("search", help="search indexed sidecar rows by column/value")
     search.add_argument("--graph")
     search.add_argument("--sidecar-db", "--db", dest="sidecar_db")
     search.add_argument("--domain")
@@ -154,7 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--column-index", type=int)
     search.add_argument("--value", required=True)
     search.add_argument("--global-debug", action="store_true")
-    query = sub.add_parser("query")
+    query = sub.add_parser("query", help="run constrained read-only SQL over sidecar views")
     query.add_argument("--graph")
     query.add_argument("--sidecar-db", "--db", dest="sidecar_db")
     query.add_argument("--domain")

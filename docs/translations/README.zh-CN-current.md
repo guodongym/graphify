@@ -488,9 +488,15 @@ graphify extract ./docs --dedup-llm            # 用 LLM 处理有歧义的实�
 graphify extract ./docs --global --as myrepo   # 提取并注册到跨项目 global graph
 GRAPHIFY_MAX_OUTPUT_TOKENS=32768 graphify extract ./docs --backend claude  # 为密集语料提高输出上限
 
-# 从显式 file-list manifest 构建 code-only domain graph
+# 从显式 file-list manifest 构建 domain graph
 graphify extract --manifest graphify-out/domains/skill-core/domain-files.json --output-dir graphify-out/domains/skill-core
 graphify update --manifest graphify-out/domains/skill-core/domain-files.json --output-dir graphify-out/domains/skill-core
+graphify extract --manifest graphify-out/domains/skill-core/domain-files.json --output-dir graphify-out/domains/skill-core --sidecar-db graphify-out/sidecar/tabular.sqlite
+
+# 查询 manifest build 写入的 tabular sidecar 行
+graphify sidecar search --graph graphify-out/domains/skill-core/graph.json --column SkillID --value 100
+graphify sidecar resolve --graph graphify-out/domains/skill-core/graph.json sidecar://tabular/<repo>/<file>/<row>/<line_hash>
+graphify sidecar query --graph graphify-out/domains/skill-core/graph.json --sql "SELECT source_file, row_no FROM current_domain_rows LIMIT 5"
 
 graphify export callflow-html                       # graphify-out/<project>-callflow.html
 graphify export callflow-html --max-sections 8      # 限制生成的架构章节数
@@ -525,7 +531,7 @@ graphify cluster-only ./my-project --resolution 1.5            # 更多、更小
 graphify cluster-only ./my-project --exclude-hubs 99           # 从 partitioning 中排除 p99 degree 节点
 ```
 
-Manifest mode 适用于调用方已经知道精确代码文件集合、需要构建更小 domain graph 的场景。Manifest 是调用方拥有的 JSON，包含 `repo_root` 和 `files[].path`；建议使用 `domain-files.json` 这类名称，避免和 Graphify 原生 `graphify-out/manifest.json` 状态文件混淆。`--output-dir` 会把 `graph.json`、`GRAPH_REPORT.md` 和 sidecar 直接写入该目录。它和目录模式的 `--out` 是分开的；cache 仍按 active native `GRAPHIFY_OUT` 布局复用，不提供 manifest 专用的 `--cache-root`。同一个 `--output-dir` 不应并发执行多个 manifest build/update；Graphify 不对 domain 输出目录加锁。Manifest state 写在 `<output-dir>/.graphify_state/update-state.json`；其中 `files` 等同于 `current_files`，`files_by_type` 等同于 `current_files_by_type`，用于兼容旧读法和更明确的当前状态读法。
+Manifest mode 适用于调用方已经知道精确代码文件集合、需要构建更小 domain graph 的场景。Manifest 是调用方拥有的 JSON，包含 `repo_root` 和 `files[].path`；建议使用 `domain-files.json` 这类名称，避免和 Graphify 原生 `graphify-out/manifest.json` 状态文件混淆。`--output-dir` 会把 `graph.json`、`GRAPH_REPORT.md` 和 domain state 直接写入该目录。它和目录模式的 `--out` 是分开的；cache 仍按 active native `GRAPHIFY_OUT` 布局复用，不提供 manifest 专用的 `--cache-root`。Tabular 文件可以使用 `tabular_policy: "sidecar"` 或 `auto`；effective sidecar 文件默认写入共享 SQLite DB `GRAPHIFY_OUT/sidecar/tabular.sqlite`，也可以通过 `--sidecar-db PATH` 覆盖。Graph 中保留 file/table/column/anchor/path-ref skeleton 和 `sidecar_ref` metadata，完整行数据通过 `graphify sidecar search`、`resolve` 或受限只读的 `query` 调试/评测接口回源。同一个 `--output-dir` 不应并发执行多个 manifest build/update；Graphify 不对 domain 输出目录加锁。Manifest state 写在 `<output-dir>/.graphify_state/update-state.json`；其中 `files` 等同于 `current_files`，`files_by_type` 等同于 `current_files_by_type`，用于兼容旧读法和更明确的当前状态读法。
 
 ---
 
