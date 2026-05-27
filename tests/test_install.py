@@ -10,6 +10,7 @@ PLATFORMS = {
     "claude": (".claude/skills/graphify/SKILL.md",),
     "codex": (".agents/skills/graphify/SKILL.md",),
     "opencode": (".config/opencode/skills/graphify/SKILL.md",),
+    "amp": (".amp/skills/graphify/SKILL.md",),
     "claw": (".openclaw/skills/graphify/SKILL.md",),
     "droid": (".factory/skills/graphify/SKILL.md",),
     "trae": (".trae/skills/graphify/SKILL.md",),
@@ -42,6 +43,11 @@ def test_install_codex(tmp_path):
 def test_install_opencode(tmp_path):
     _install(tmp_path, "opencode")
     assert (tmp_path / ".config" / "opencode" / "skills" / "graphify" / "SKILL.md").exists()
+
+
+def test_install_amp(tmp_path):
+    _install(tmp_path, "amp")
+    assert (tmp_path / ".amp" / "skills" / "graphify" / "SKILL.md").exists()
 
 
 def test_install_positional_platform_opencode(tmp_path, monkeypatch):
@@ -166,6 +172,16 @@ def test_install_help_does_not_install_default(tmp_path, monkeypatch, capsys):
     assert not (tmp_path / ".config").exists()
 
 
+def test_main_help_lists_amp(monkeypatch, capsys):
+    from graphify.__main__ import main
+    monkeypatch.setattr(sys, "argv", ["graphify", "--help"])
+    main()
+    out = capsys.readouterr().out
+    assert "|amp|" in out or "|amp)" in out
+    assert "amp install" in out
+    assert "amp uninstall" in out
+
+
 def test_install_claw(tmp_path):
     _install(tmp_path, "claw")
     assert (tmp_path / ".openclaw" / "skills" / "graphify" / "SKILL.md").exists()
@@ -255,7 +271,7 @@ def test_all_skill_files_exist_in_package():
     """All installable platform skill files must be present in the installed package."""
     import graphify
     pkg = Path(graphify.__file__).parent
-    for name in ("skill.md", "skill-codex.md", "skill-opencode.md", "skill-claw.md", "skill-windows.md", "skill-droid.md", "skill-trae.md"):
+    for name in ("skill.md", "skill-codex.md", "skill-opencode.md", "skill-aider.md", "skill-amp.md", "skill-claw.md", "skill-windows.md", "skill-droid.md", "skill-trae.md"):
         assert (pkg / name).exists(), f"Missing: {name}"
 
 

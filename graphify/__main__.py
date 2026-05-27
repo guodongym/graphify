@@ -343,6 +343,11 @@ def _platform_skill_destination(platform_name: str, *, project: bool = False, pr
             return Path.home() / ".agents" / "skills" / "graphify" / "SKILL.md"
         return Path.home() / ".gemini" / "skills" / "graphify" / "SKILL.md"
 
+    if platform_name == "opencode":
+        if project:
+            return (project_dir or Path(".")) / ".opencode" / "skills" / "graphify" / "SKILL.md"
+        return Path.home() / ".config" / "opencode" / "skills" / "graphify" / "SKILL.md"
+
     if platform_name == "devin":
         if project:
             return (project_dir or Path(".")) / ".devin" / "skills" / "graphify" / "SKILL.md"
@@ -553,6 +558,11 @@ _PLATFORM_CONFIG: dict[str, dict] = {
     "kimi": {
         "skill_file": "skill.md",
         "skill_dst": Path(".kimi") / "skills" / "graphify" / "SKILL.md",
+        "claude_md": False,
+    },
+    "amp": {
+        "skill_file": "skill-amp.md",
+        "skill_dst": Path(".amp") / "skills" / "graphify" / "SKILL.md",
         "claude_md": False,
     },
     "devin": {
@@ -1386,7 +1396,7 @@ def _project_install(platform_name: str, project_dir: Path | None = None) -> Non
     elif platform_name == "kiro":
         _kiro_install(project_dir)
         _print_project_git_add_hint([project_dir / ".kiro"])
-    elif platform_name in ("aider", "codex", "opencode", "claw", "droid", "trae", "trae-cn", "hermes"):
+    elif platform_name in ("aider", "amp", "codex", "opencode", "claw", "droid", "trae", "trae-cn", "hermes"):
         skill_dst = _copy_skill_file(platform_name, project=True, project_dir=project_dir)
         _agents_install(project_dir, platform_name)
         hint_paths = [_project_scope_root(skill_dst, project_dir), project_dir / "AGENTS.md"]
@@ -1419,7 +1429,7 @@ def _project_uninstall(platform_name: str, project_dir: Path | None = None) -> N
         _cursor_uninstall(project_dir)
     elif platform_name == "kiro":
         _kiro_uninstall(project_dir)
-    elif platform_name in ("aider", "codex", "opencode", "claw", "droid", "trae", "trae-cn", "hermes"):
+    elif platform_name in ("aider", "amp", "codex", "opencode", "claw", "droid", "trae", "trae-cn", "hermes"):
         _remove_skill_file(platform_name, project=True, project_dir=project_dir)
         _agents_uninstall(project_dir, platform=platform_name)
         if platform_name == "codex":
@@ -1690,7 +1700,7 @@ def main() -> None:
         print("Usage: graphify <command>")
         print()
         print("Commands:")
-        print("  install [--platform P]  copy skill to platform config dir (claude|windows|codex|opencode|aider|claw|droid|trae|trae-cn|gemini|cursor|antigravity|hermes|kiro|pi|devin)")
+        print("  install [--platform P]  copy skill to platform config dir (claude|windows|codex|opencode|aider|amp|claw|droid|trae|trae-cn|gemini|cursor|antigravity|hermes|kiro|pi|devin)")
         print("  uninstall               remove graphify from all detected platforms in one shot")
         print("    --purge                 also delete graphify-out/ directory")
         print("  path \"A\" \"B\"            shortest path between two nodes in graph.json")
@@ -1791,6 +1801,8 @@ def main() -> None:
         print("  opencode uninstall      remove graphify section from AGENTS.md + plugin")
         print("  aider install           write graphify section to AGENTS.md (Aider)")
         print("  aider uninstall         remove graphify section from AGENTS.md")
+        print("  amp install             write graphify section to AGENTS.md (Amp)")
+        print("  amp uninstall           remove graphify section from AGENTS.md")
         print("  copilot install         copy graphify skill to ~/.copilot/skills (GitHub Copilot CLI)")
         print("  copilot uninstall       remove graphify skill from ~/.copilot/skills")
         print("  vscode install          configure VS Code Copilot Chat (skill + .github/copilot-instructions.md)")
@@ -2013,7 +2025,7 @@ def main() -> None:
         else:
             print("Usage: graphify pi [install|uninstall]", file=sys.stderr)
             sys.exit(1)
-    elif cmd in ("aider", "codex", "opencode", "claw", "droid", "trae", "trae-cn", "hermes"):
+    elif cmd in ("aider", "amp", "codex", "opencode", "claw", "droid", "trae", "trae-cn", "hermes"):
         subcmd = sys.argv[2] if len(sys.argv) > 2 else ""
         if subcmd == "install":
             if "--project" in sys.argv[3:]:

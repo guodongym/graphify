@@ -168,6 +168,37 @@ def test_rebuild_lock_does_not_accumulate_pids_across_runs(tmp_path):
         assert not lock_path.exists()
 
 
+def test_rebuild_code_evicts_nodes_from_deleted_files(tmp_path):
+    """#1007: graphify update (_rebuild_code with no changed_paths) must remove
+    nodes and edges from files deleted since the last run."""
+    import json
+    from graphify.watch import _rebuild_code
+
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+
+    (corpus / "auth.py").write_text(
+        "def login(): pass\ndef logout(): pass\n", encoding="utf-8"
+    )
+    (corpus / "utils.py").write_text(
+        "def format_date(): pass\n", encoding="utf-8"
+    )
+
+    assert _rebuild_code(corpus, acquire_lock=False) is True
+    graph_path = corpus / "graphify-out" / "graph.json"
+    data = json.loads(graph_path.read_text(encoding="utf-8"))
+    node_labels_before = {n["label"] for n in data.get("nodes", [])}
+    assert "format_date()" in node_labels_before
+
+    (corpus / "utils.py").unlink()
+
+    assert _rebuild_code(corpus, acquire_lock=False) is True
+    data = json.loads(graph_path.read_text(encoding="utf-8"))
+    node_labels_after = {n["label"] for n in data.get("nodes", [])}
+    assert "format_date()" not in node_labels_after, "stale function node from deleted file must be evicted"
+    assert "login()" in node_labels_after, "nodes from surviving file must be kept"
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="fcntl-only (POSIX)")
 def test_rebuild_lock_non_blocking_does_not_clobber_holder(tmp_path):
     """GH-858: a non-blocking caller that fails to acquire the lock must not
@@ -262,7 +293,7 @@ def test_rebuild_code_force_rewrites_metadata_when_topology_unchanged(tmp_path, 
     assert "Built from commit: `22222222`" in second_report
 
 
-def test_rebuild_code_force_rewrites_no_cluster_graph_when_canonical_matches(tmp_path):
+def test_rebuild_code_force_rewrites_no_cluster_graph_when_canonical_matches(tmp_path, capsys):
     from graphify import watch as watch_mod
 
     src = tmp_path / "app.py"
@@ -276,10 +307,13 @@ def test_rebuild_code_force_rewrites_no_cluster_graph_when_canonical_matches(tmp
     graph_path.write_text(json.dumps(graph), encoding="utf-8")
 
     assert watch_mod._rebuild_code(tmp_path, force=True, no_cluster=True)
+    captured = capsys.readouterr()
 
     rewritten = json.loads(graph_path.read_text(encoding="utf-8"))
     assert "built_at_commit" not in rewritten
     assert len(rewritten["links"]) == first_edge_count
+    assert "graph.json updated" in captured.out
+    assert "outputs left untouched" not in captured.out
 
 
 def test_rebuild_code_changed_tab_keeps_reference_connected_to_preserved_file(tmp_path):
