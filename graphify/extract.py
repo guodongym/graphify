@@ -9908,10 +9908,19 @@ def collect_files(target: Path, *, follow_symlinks: bool = False, root: Path | N
 
     def _has_noise_dir_under_target(p: Path) -> bool:
         try:
-            parts = p.relative_to(target).parts
+            relative_path = p.relative_to(target)
         except ValueError:
-            parts = p.parts
-        return any(_is_noise_dir(part) for part in parts[:-1])
+            relative_path = p
+            parent_base = Path()
+        else:
+            parent_base = target
+        for ancestor in relative_path.parents:
+            if ancestor in (Path("."), Path("")):
+                continue
+            parent = parent_base / ancestor.parent
+            if _is_noise_dir(ancestor.name, parent):
+                return True
+        return False
 
     if not follow_symlinks:
         results: set[Path] = set()
@@ -9947,7 +9956,7 @@ def collect_files(target: Path, *, follow_symlinks: bool = False, root: Path | N
                 dirnames.clear()
                 continue
         dp = Path(dirpath)
-        dirnames[:] = [d for d in dirnames if not _is_noise_dir(d)]
+        dirnames[:] = [d for d in dirnames if not _is_noise_dir(d, dp)]
         for fname in filenames:
             p = dp / fname
             if (

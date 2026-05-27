@@ -228,6 +228,22 @@ def test_collect_files_from_project_inside_worktrees_parent(tmp_path):
     assert files == [src / "app.py"]
 
 
+def test_collect_files_skips_worktrees_nested_inside_dotted_dir(tmp_path):
+    src = tmp_path / "src"
+    nested_worktree = tmp_path / ".claude" / "worktrees" / "feature" / "src"
+    src.mkdir(parents=True)
+    nested_worktree.mkdir(parents=True)
+    keep = src / "app.py"
+    skipped = nested_worktree / "shadow.py"
+    keep.write_text("x = 1\n", encoding="utf-8")
+    skipped.write_text("y = 2\n", encoding="utf-8")
+
+    files = collect_files(tmp_path)
+
+    assert keep in files
+    assert skipped not in files
+
+
 def test_collect_files_skips_hidden():
     files = collect_files(FIXTURES)
     for f in files:
