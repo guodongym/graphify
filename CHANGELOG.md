@@ -2,6 +2,12 @@
 
 Full release notes with details on each version: [GitHub Releases](https://github.com/safishamsi/graphify/releases)
 
+## 0.8.20+hanhai.0.3 (2026-05-27)
+
+- Internal Hanhai build: add Phase 0.5 tabular sidecar DB support for manifest domain graphs. Effective `sidecar`/`auto` tabular files are written to a shared SQLite DB, while the graph keeps file/table/column/anchor/path-ref skeleton nodes and `sidecar_ref` metadata.
+- Add graph-aware `graphify sidecar search`, `resolve`, and constrained read-only `query` commands for sidecar row lookup, eval analysis, and relationship discovery.
+- Add JX3-mini sidecar fixtures, shared DB prune/domain isolation coverage, graph-only prune regression tests, and CLI help/docs for `--sidecar-db`.
+
 ## 0.8.20+hanhai.0.2 (2026-05-27)
 
 - Internal Hanhai build: merge upstream 0.8.20 while carrying local structured `.tab` and `.ini` extraction, TSV-like `.txt` routing, Lua header `.lh` support, manifest-driven domain graph build/update mode, and shared source decoding fixes.

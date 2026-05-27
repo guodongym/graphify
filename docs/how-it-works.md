@@ -80,6 +80,34 @@ Every extracted file is fingerprinted by content hash. Re-runs skip unchanged fi
 
 ---
 
+## Manifest domains and tabular sidecars
+
+For large repositories, callers can build domain graphs from an explicit
+manifest instead of scanning a whole tree:
+
+```bash
+graphify extract --manifest graphify-out/domains/skill/domain-files.json --output-dir graphify-out/domains/skill
+graphify update --manifest graphify-out/domains/skill/domain-files.json --output-dir graphify-out/domains/skill
+```
+
+Manifest mode writes `graph.json`, `GRAPH_REPORT.md`, and domain state directly
+under `--output-dir`. It reuses the active `GRAPHIFY_OUT` cache and can write
+tabular data to a shared sidecar DB. A tabular file with effective
+`tabular_policy: "sidecar"` is stored in SQLite instead of emitting full row or
+cell nodes into the graph. The graph keeps navigable table/column/anchor/path-ref
+skeleton nodes and `sidecar_ref` pointers; complete rows are fetched with:
+
+```bash
+graphify sidecar search --graph graphify-out/domains/skill/graph.json --column SkillID --value 100
+graphify sidecar resolve --graph graphify-out/domains/skill/graph.json sidecar://tabular/<repo>/<file>/<row>/<line_hash>
+graphify sidecar query --graph graphify-out/domains/skill/graph.json --sql "SELECT source_file, row_no FROM current_domain_rows LIMIT 5"
+```
+
+`search` and `resolve` are the stable lookup APIs. `query` is intentionally a
+constrained read-only analysis/debug surface over scoped views.
+
+---
+
 ## The graph format
 
 The output `graph.json` uses NetworkX's node-link format. Each node has:

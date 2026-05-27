@@ -21,6 +21,13 @@ Each stage is a single function in its own module. They communicate through plai
 | `analyze.py` | `analyze(G)` | graph → analysis dict (god nodes, surprises, questions) |
 | `report.py` | `render_report(G, analysis)` | graph + analysis → GRAPH_REPORT.md string |
 | `export.py` | `export(G, out_dir, ...)` | graph → Obsidian vault, graph.json, graph.html, graph.svg |
+| `code_build_runner.py` | `build_code_graph(...)` | explicit manifest file set → domain graph outputs |
+| `manifest.py` | `load_domain_manifest(...)` | caller-owned domain manifest → normalized file set |
+| `tabular.py` | tabular parser/profile helpers | `.tab`/`.tsv` file → headers, rows, profile, path-like refs |
+| `tabular_manifest.py` | `load_tabular_domain_manifest(...)` | domain manifest → effective graph/sidecar tabular policies |
+| `tabular_sidecar.py` | sidecar store/query API | tabular manifest → shared SQLite DB; search/resolve/query rows |
+| `tabular_graph.py` | `merge_sidecar_projection(...)` | sidecar DB rows → graph table/column/anchor/path-ref skeleton |
+| `sidecar_cli.py` | `graphify sidecar ...` | CLI search/resolve/query over tabular sidecar DB |
 | `callflow_html.py` | `write_callflow_html(...)` | graphify-out files → Mermaid architecture/call-flow HTML |
 | `ingest.py` | `ingest(url, ...)` | URL → file saved to corpus dir |
 | `cache.py` | `check_semantic_cache / save_semantic_cache` | files → (cached, uncached) split |
@@ -46,6 +53,25 @@ Every extractor returns:
 ```
 
 `validate.py` enforces this schema before `build_graph()` consumes it.
+
+## Manifest domain builds and tabular sidecars
+
+Directory-mode extraction scans a root and writes the native `graphify-out/`
+layout. Manifest mode is caller-owned: `graphify extract|update --manifest
+FILE --output-dir DIR` receives an explicit file list, builds a smaller domain
+graph directly in `DIR`, and keeps manifest state in
+`DIR/.graphify_state/update-state.json`. It still reuses the active native
+`GRAPHIFY_OUT` cache; there is no manifest-specific cache root.
+
+Tabular manifest entries can choose `tabular_policy: "graph"`, `"sidecar"`, or
+`"auto"`. Effective `graph` files keep the existing extractor behavior.
+Effective `sidecar` files are removed from the normal extractor input, written
+into a shared SQLite DB at `GRAPHIFY_OUT/sidecar/tabular.sqlite` by default
+(`--sidecar-db PATH` overrides this), and projected back into the graph as
+source/table/column/anchor/path-ref skeleton nodes with `sidecar_ref` metadata.
+Full rows are intentionally not stored as graph nodes; callers recover them via
+`graphify sidecar search`, `graphify sidecar resolve`, or the constrained
+read-only `graphify sidecar query` debug/eval surface.
 
 ## Confidence labels
 
