@@ -1,0 +1,15 @@
+BuffID	Name	DurationFrame
+1	SpeedBoost	300
+2	Regeneration	600
+3	Shield	450
+10	Stun	120
+11	Slow	240
+20	Invincible	180
+100	FireDOT	900
+101	IceSlow	600
+200	Berserk	360
+50001	DragonBuff	1200
+50002	PhoenixAura	1500
+50003	MeteorDebuff	800
+50100	UltimateArmor	2400
+50200	DivineBlessing	3000

@@ -59,6 +59,7 @@ def _parse_manifest_cli_args(args: list[str]) -> dict:
     parsed: dict = {
         "manifest": None,
         "output_dir": None,
+        "sidecar_db": None,
         "out": None,
         "positionals": [],
         "no_cluster": False,
@@ -98,6 +99,15 @@ def _parse_manifest_cli_args(args: list[str]) -> dict:
             if not value:
                 raise ValueError("--output-dir requires a path")
             parsed["output_dir"] = value
+            i += 1
+        elif arg == "--sidecar-db":
+            parsed["sidecar_db"] = _required_value("--sidecar-db", i, "path")
+            i += 2
+        elif arg.startswith("--sidecar-db="):
+            value = arg.split("=", 1)[1]
+            if not value:
+                raise ValueError("--sidecar-db requires a path")
+            parsed["sidecar_db"] = value
             i += 1
         elif arg == "--out":
             parsed["out"] = "--out"
@@ -188,7 +198,7 @@ def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
         option = parsed["unsupported"][0]
         print(
             f"error: {option} is not supported with --manifest; "
-            "manifest mode only accepts --manifest, --output-dir, and --max-workers.",
+            "manifest mode only accepts --manifest, --output-dir, --sidecar-db, and --max-workers.",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -208,18 +218,40 @@ def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
 
     from graphify.code_build_runner import build_code_graph
     from graphify.manifest import DomainManifestError, load_domain_manifest
+    from graphify.tabular_manifest import load_tabular_domain_manifest
 
     try:
         domain = load_domain_manifest(manifest_arg, cwd=Path.cwd())
+        manifest_path = _resolve_cli_path(manifest_arg)
+        output_dir = _resolve_cli_path(output_dir_arg)
+
+        tabular_manifest = load_tabular_domain_manifest(
+            manifest_path,
+            cwd=Path.cwd(),
+            output_dir=output_dir,
+        )
+
+        active_graphify_output = Path(
+            os.environ.get("GRAPHIFY_OUT", "")
+        ) if os.environ.get("GRAPHIFY_OUT") else (domain.repo_root / "graphify-out")
+        active_graphify_output = active_graphify_output.resolve()
+
+        sidecar_db_path: Path | None = None
+        if parsed["sidecar_db"] is not None:
+            sidecar_db_path = _resolve_cli_path(parsed["sidecar_db"])
+
         result = build_code_graph(
             code_files=domain.source_paths,
             repo_root=domain.repo_root,
-            output_dir=_resolve_cli_path(output_dir_arg),
+            output_dir=output_dir,
             mode=command,
             files_by_type=domain.files_by_type,
             relative_source_paths=domain.relative_source_paths,
             relative_files_by_type=domain.relative_files_by_type,
             max_workers=parsed["max_workers"],
+            tabular_manifest=tabular_manifest,
+            active_graphify_output=active_graphify_output,
+            sidecar_db_path=sidecar_db_path,
         )
     except DomainManifestError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -3785,6 +3817,10 @@ def main() -> None:
         out_path2.parent.mkdir(parents=True, exist_ok=True)
         out_path2.write_text(json.dumps(merged2, ensure_ascii=False), encoding="utf-8")
         print(f"Merged: {len(merged2['nodes'])} nodes, {len(merged2['edges'])} edges")
+
+    elif cmd == "sidecar":
+        from graphify.sidecar_cli import main as _sidecar_main
+        sys.exit(_sidecar_main(sys.argv[2:]))
 
     elif Path(cmd).exists() or cmd in (".", "..") or cmd.startswith(("./", "../", "/", "~")):
         # User ran `graphify <path>` directly — treat as `graphify extract <path>`.

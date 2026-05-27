@@ -25,6 +25,7 @@ def generate(
     suggested_questions: list[dict] | None = None,
     min_community_size: int = 3,
     built_at_commit: str | None = None,
+    sidecar_stats: dict | None = None,
 ) -> str:
     today = date.today().isoformat()
 
@@ -199,5 +200,70 @@ def generate(
                 if q.get("question"):
                     lines.append(f"- **{q['question']}**")
                     lines.append(f"  _{q['why']}_")
+
+    if sidecar_stats:
+        lines += ["", "## Tabular Sidecar"]
+        if "db_path" in sidecar_stats:
+            lines.append(f"- DB path: `{sidecar_stats['db_path']}`")
+        if "schema_version" in sidecar_stats:
+            lines.append(f"- schema version: `{sidecar_stats['schema_version']}`")
+        if "repo_key" in sidecar_stats:
+            lines.append(f"- repo key: `{sidecar_stats['repo_key']}`")
+        if "sidecar_db_id" in sidecar_stats:
+            lines.append(f"- sidecar DB ID: `{sidecar_stats['sidecar_db_id']}`")
+        if "sidecar_instance_id" in sidecar_stats:
+            lines.append(f"- sidecar instance ID: `{sidecar_stats['sidecar_instance_id']}`")
+        if "generation" in sidecar_stats:
+            lines.append(f"- generation: `{sidecar_stats['generation']}`")
+
+        # Current snapshot
+        snapshot_parts = []
+        if "files_count" in sidecar_stats:
+            snapshot_parts.append(f"files `{sidecar_stats['files_count']}`")
+        if "tables_count" in sidecar_stats:
+            snapshot_parts.append(f"tables `{sidecar_stats['tables_count']}`")
+        if "rows_count" in sidecar_stats:
+            snapshot_parts.append(f"rows `{sidecar_stats['rows_count']}`")
+        if "indexed_values_count" in sidecar_stats:
+            snapshot_parts.append(f"indexed values `{sidecar_stats['indexed_values_count']}`")
+        if "refs_count" in sidecar_stats:
+            snapshot_parts.append(f"refs `{sidecar_stats['refs_count']}`")
+        if snapshot_parts:
+            lines.append(f"- current snapshot: {', '.join(snapshot_parts)}")
+
+        # Last run delta
+        delta_parts = []
+        if "files_rebuilt" in sidecar_stats:
+            delta_parts.append(f"files rebuilt `{sidecar_stats['files_rebuilt']}`")
+        if "rows_rebuilt" in sidecar_stats:
+            delta_parts.append(f"rows rebuilt `{sidecar_stats['rows_rebuilt']}`")
+        if "rows_pruned" in sidecar_stats:
+            delta_parts.append(f"rows pruned `{sidecar_stats['rows_pruned']}`")
+        if "warnings_count" in sidecar_stats:
+            delta_parts.append(f"warnings `{sidecar_stats['warnings_count']}`")
+        if delta_parts:
+            lines.append(f"- last run delta: {', '.join(delta_parts)}")
+
+        # Auto decisions
+        if "auto_graph" in sidecar_stats or "auto_sidecar" in sidecar_stats or "auto_reasons" in sidecar_stats:
+            auto_parts = []
+            if "auto_graph" in sidecar_stats:
+                auto_parts.append(f"graph `{sidecar_stats['auto_graph']}`")
+            if "auto_sidecar" in sidecar_stats:
+                auto_parts.append(f"sidecar `{sidecar_stats['auto_sidecar']}`")
+            if "auto_reasons" in sidecar_stats:
+                auto_parts.append(f"reasons `{sidecar_stats['auto_reasons']}`")
+            lines.append(f"- auto decisions: {', '.join(auto_parts)}")
+
+        if "explicit_graph_warnings" in sidecar_stats:
+            lines.append(f"- explicit graph warnings: `{sidecar_stats['explicit_graph_warnings']}` files exceeded auto thresholds but stayed on graph policy")
+        if "rejected_files" in sidecar_stats:
+            lines.append(f"- rejected files: `{sidecar_stats['rejected_files']}`")
+        if "lock_waits" in sidecar_stats or "lock_fails" in sidecar_stats:
+            waits = sidecar_stats.get("lock_waits", 0)
+            fails = sidecar_stats.get("lock_fails", 0)
+            lines.append(f"- lock waits/fails: `{waits}/{fails}`")
+        if "busy_timeouts" in sidecar_stats:
+            lines.append(f"- SQLite busy timeouts: `{sidecar_stats['busy_timeouts']}`")
 
     return "\n".join(lines)

@@ -1,0 +1,16 @@
+SkillID	Name	Script
+100	BasicKick	scripts/kick.lua
+101	BasicPunch	scripts/punch.lua
+102	BlockStance	scripts/block.lua
+200	PowerSlash	scripts/slash.lua
+201	FireBall	scripts/fireball.lua
+1000	HealingTouch	scripts/heal.lua
+1001	ShieldBash	scripts/bash.lua
+5000	DragonStrike	scripts/dragon.lua
+10000	PhoenixRising	scripts/phoenix.lua
+50001	MeteorShower	scripts/meteor.lua
+50002	IceBlast	scripts/ice.lua
+50003	LightningStorm	scripts/lightning.lua
+50100	UltimateSlash	scripts/ultimate_slash.lua
+50200	DivineProtection	scripts/divine.lua
+50300	ShadowStep	scripts/shadow.lua
