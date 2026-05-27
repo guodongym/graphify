@@ -15,7 +15,12 @@ from .cache import load_cached, save_cached
 from .mcp_ingest import extract_mcp_config, is_mcp_config_path
 from graphify.detect import CODE_EXTENSIONS
 from graphify.source_text import decode_source_text
-from graphify.tabular import looks_like_tabular_text
+from graphify.tabular import (
+    is_tabular_url_value,
+    looks_like_tabular_path_value,
+    looks_like_tabular_text,
+    normalise_tabular_path_value,
+)
 
 _RECURSION_LIMIT = 10_000
 
@@ -8306,12 +8311,6 @@ def _choose_tab_identity(headers: list[tuple[str, str]], rows: list[list[str]]) 
     return best_idx
 
 
-_TAB_PATH_EXTENSIONS = {
-    *CODE_EXTENSIONS,
-    ".txt", ".md", ".xml", ".yaml", ".yml",
-}
-
-
 _TAB_PROJECT_ROOT_MARKERS = {
     ".git", "pyproject.toml", "package.json", "go.mod", "Cargo.toml", "graphify-out",
 }
@@ -8328,29 +8327,15 @@ def _case_variant_glob_patterns(ext: str) -> list[str]:
 
 
 def _normalise_tab_path_value(value: str) -> str:
-    return value.strip().strip('"\'').replace("\\", "/")
-
-
-_TAB_URL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+    return normalise_tabular_path_value(value)
 
 
 def _is_tab_url_value(value: str) -> bool:
-    return _TAB_URL_RE.match(value) is not None
+    return is_tabular_url_value(value)
 
 
 def _looks_like_tab_path(value: str) -> bool:
-    cleaned = _normalise_tab_path_value(value)
-    if not cleaned or len(cleaned) > 512:
-        return False
-    if _is_tab_url_value(cleaned):
-        return False
-    suffix = Path(cleaned).suffix.lower()
-    if suffix in _TAB_PATH_EXTENSIONS:
-        return True
-    if "/" in cleaned:
-        parts = [p for p in cleaned.split("/") if p and p not in (".", "..")]
-        return len(parts) >= 2 and any("." in p for p in parts[-1:])
-    return False
+    return looks_like_tabular_path_value(value)
 
 
 def _find_tab_project_root(tab_path: Path) -> Path | None:
@@ -9429,6 +9414,7 @@ _DISPATCH: dict[str, Any] = {
     ".bash": extract_bash,
     ".json": extract_json,
     ".tab": extract_tab,
+    ".tsv": extract_tab,
     ".ini": extract_ini,
     ".sln": extract_sln,
     ".csproj": extract_csproj,
