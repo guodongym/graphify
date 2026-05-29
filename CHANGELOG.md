@@ -2,6 +2,10 @@
 
 Full release notes with details on each version: [GitHub Releases](https://github.com/safishamsi/graphify/releases)
 
+## 0.8.24+hanhai.0.4.1 (2026-05-30)
+
+- Fix: tabular sidecar path-reference extraction now only scans path-like columns and ignores filesystem `OSError` during path resolution, avoiding JX3 `skillevent.txt` prose descriptions being misread as ultra-long paths during full sync.
+
 ## 0.8.24+hanhai.0.4.0 (2026-05-29)
 
 - Internal Hanhai build: rebase the Hanhai manifest-domain, structured tabular extraction, sidecar DB, and unsupported-manifest-file filtering patchset onto upstream 0.8.24.
