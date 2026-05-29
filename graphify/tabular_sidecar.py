@@ -686,10 +686,19 @@ def _insert_indexes(
 
 
 def _insert_path_refs(conn: sqlite3.Connection, file_id: int, row_id: int, row) -> int:
-    from graphify.tabular import looks_like_tabular_path_value, normalise_tabular_path_value
+    from graphify.tabular import (
+        looks_like_tabular_path_column_name,
+        looks_like_tabular_path_value,
+        normalise_tabular_path_value,
+    )
 
     inserted = 0
     for item in row.row_values_json:
+        if not looks_like_tabular_path_column_name(
+            str(item["name"]),
+            str(item["normalized_name"]),
+        ):
+            continue
         value = str(item["value"])
         if not looks_like_tabular_path_value(value):
             continue

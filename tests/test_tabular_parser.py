@@ -3,6 +3,7 @@ from __future__ import annotations
 from graphify.extract import extract
 from graphify.tabular import (
     _line_hash,
+    looks_like_tabular_path_column_name,
     looks_like_tabular_path_value,
     parse_tabular_file,
     read_tabular_profile,
@@ -85,6 +86,14 @@ def test_looks_like_tabular_path_value_detects_path_like_values():
     assert looks_like_tabular_path_value("attack.go") is True
     assert looks_like_tabular_path_value("https://example.com/file.lua") is False
     assert looks_like_tabular_path_value("plain-value") is False
+
+
+def test_looks_like_tabular_path_column_name_filters_prose_columns():
+    assert looks_like_tabular_path_column_name("Script") is True
+    assert looks_like_tabular_path_column_name("SourceFile") is True
+    assert looks_like_tabular_path_column_name("IconPath") is True
+    assert looks_like_tabular_path_column_name("Desc") is False
+    assert looks_like_tabular_path_column_name("Description") is False
 
 
 def test_tsv_dispatches_to_tab_extractor(tmp_path):

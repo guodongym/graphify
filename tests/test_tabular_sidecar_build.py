@@ -366,6 +366,55 @@ def test_path_ref_skeleton_does_not_publish_outside_repo_target(tmp_path: Path) 
     )
 
 
+def test_long_desc_text_does_not_become_path_ref(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    scripts = repo / "scripts"
+    scripts.mkdir()
+    (scripts / "kick.lua").write_text("return 'kick'\n", encoding="utf-8")
+    long_desc = "2021年8月16日—2021年8月30日：\\n1. 活动说明。\\n2. 继续说明。" * 6
+    tab = repo / "skillevent.txt"
+    tab.write_text(
+        "SkillID\tDesc\tScript\n"
+        f"100\t{long_desc}\tscripts/kick.lua\n",
+        encoding="utf-8",
+    )
+
+    manifest_path = _write_manifest(tmp_path, repo, [
+        {
+            "path": "skillevent.txt",
+            "tabular_policy": "sidecar",
+            "primary_key": "SkillID",
+            "anchor_columns": ["SkillID"],
+        },
+        {"path": "scripts/kick.lua"},
+    ])
+    output_dir = tmp_path / "out"
+    _build_graph(tmp_path, repo, manifest_path, output_dir)
+
+    graph_json = json.loads((output_dir / "graph.json").read_text(encoding="utf-8"))
+    refs = [n for n in graph_json["nodes"] if n.get("type") == "tabular_ref"]
+    assert [ref["target_ref"] for ref in refs] == ["scripts/kick.lua"]
+    assert all("2021年8月16日" not in ref.get("value", "") for ref in refs)
+
+
+def test_path_ref_target_resolution_ignores_filesystem_os_errors(tmp_path: Path) -> None:
+    from graphify.tabular_graph import _existing_path_ref_target, _resolve_path_ref_target
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source = "skillevent.txt"
+    long_component = "x" * 300 + ".lua"
+
+    assert _resolve_path_ref_target(
+        {},
+        source_file=source,
+        target_ref=long_component,
+        repo_root=repo,
+    ) is None
+    assert _existing_path_ref_target(source, long_component, repo) is None
+
+
 # ---------------------------------------------------------------------------
 # Test 8: GRAPH_REPORT.md includes tabular sidecar section
 # ---------------------------------------------------------------------------

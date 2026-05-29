@@ -141,7 +141,11 @@ def _resolve_path_ref_target(
     target_ref: str,
     repo_root: Path,
 ) -> str | None:
-    for candidate in _path_ref_candidates(source_file, target_ref, repo_root):
+    try:
+        candidates = _path_ref_candidates(source_file, target_ref, repo_root)
+    except OSError:
+        return None
+    for candidate in candidates:
         target_node_id = file_node_index.get(str(candidate))
         if target_node_id:
             return target_node_id
@@ -157,8 +161,15 @@ def _repo_relative(path: Path, repo_root: Path) -> str:
 
 def _existing_path_ref_target(source_file: str, target_ref: str, repo_root: Path) -> Path | None:
     resolved_root = repo_root.resolve()
-    for candidate in _path_ref_candidates(source_file, target_ref, repo_root):
-        if not candidate.exists() or not candidate.is_file():
+    try:
+        candidates = _path_ref_candidates(source_file, target_ref, repo_root)
+    except OSError:
+        return None
+    for candidate in candidates:
+        try:
+            if not candidate.exists() or not candidate.is_file():
+                continue
+        except OSError:
             continue
         try:
             candidate.relative_to(resolved_root)

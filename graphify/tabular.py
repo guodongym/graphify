@@ -224,6 +224,56 @@ def normalise_tabular_value(value: str) -> str:
     return value.strip()
 
 
+_TABULAR_PATH_COLUMN_TERMS = {
+    "asset",
+    "dir",
+    "directory",
+    "file",
+    "filename",
+    "filepath",
+    "icon",
+    "image",
+    "include",
+    "lua",
+    "model",
+    "path",
+    "resource",
+    "script",
+    "source",
+    "sound",
+    "target",
+}
+
+
+def _column_name_tokens(value: str) -> set[str]:
+    cleaned = re.sub(r"[^0-9A-Za-z]+", " ", value.strip())
+    tokens: set[str] = set()
+    for chunk in cleaned.split():
+        tokens.update(
+            token.lower()
+            for token in re.findall(
+                r"[A-Z]+(?=[A-Z][a-z]|[0-9]|\b)|[A-Z]?[a-z]+|[0-9]+",
+                chunk,
+            )
+            if token
+        )
+        tokens.add(chunk.lower())
+    return tokens
+
+
+def looks_like_tabular_path_column_name(name: str, normalized_name: str | None = None) -> bool:
+    values = [name]
+    if normalized_name is not None and normalized_name != name:
+        values.append(normalized_name)
+    tokens: set[str] = set()
+    for value in values:
+        tokens.update(_column_name_tokens(value))
+    compact = {re.sub(r"[^0-9A-Za-z]+", "", value).lower() for value in values}
+    return bool(tokens & _TABULAR_PATH_COLUMN_TERMS) or bool(
+        compact & _TABULAR_PATH_COLUMN_TERMS
+    )
+
+
 def is_tabular_url_value(value: str) -> bool:
     """Check if a pre-normalized value looks like a URL."""
     return _TABULAR_URL_RE.match(value) is not None

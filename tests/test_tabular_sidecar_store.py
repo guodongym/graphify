@@ -95,6 +95,40 @@ def test_update_sidecar_writes_rows_indexes_and_refs(tmp_path):
         conn.close()
 
 
+def test_update_sidecar_does_not_extract_path_refs_from_desc_text(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    table = repo / "skillevent.txt"
+    long_desc = "2021年8月16日—2021年8月30日：\\n1. 第一段说明。\\n2. 第二段说明。" * 6
+    table.write_text(
+        "SkillID\tDesc\tScript\n"
+        f"100\t{long_desc}\tscripts/kick.lua\n",
+        encoding="utf-8",
+    )
+    manifest = build_manifest(
+        tmp_path,
+        files=[{
+            "path": "skillevent.txt",
+            "tabular_policy": "sidecar",
+            "primary_key": "SkillID",
+        }],
+    )
+    db_path = tmp_path / "sidecar.db"
+
+    stats = update_sidecar(db_path, manifest)
+
+    assert stats.refs_upserted == 1
+    conn = connect_sidecar(db_path, readonly=True)
+    try:
+        refs = conn.execute(
+            "SELECT target_ref, value FROM tabular_refs ORDER BY target_ref"
+        ).fetchall()
+        assert [row["target_ref"] for row in refs] == ["scripts/kick.lua"]
+        assert all("2021年8月16日" not in row["value"] for row in refs)
+    finally:
+        conn.close()
+
+
 def test_search_rows_finds_row_by_indexed_value(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
