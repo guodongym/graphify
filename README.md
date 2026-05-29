@@ -87,7 +87,7 @@ uv tool install graphifyy
 
 # Alternatives:
 pipx install graphifyy
-pip install graphifyy
+pip install graphifyy  # may need PATH setup — see note below
 ```
 
 **Step 2 — register the skill with your AI assistant:**
@@ -115,6 +115,8 @@ for example `graphify claude install --project` or `graphify codex install --pro
 > **PowerShell note:** Use `graphify .` not `/graphify .` — the leading slash is a path separator in PowerShell.
 
 > **`graphify: command not found`?** Use `uv tool install graphifyy` or `pipx install graphifyy` — both put the CLI on PATH automatically. With plain `pip`, add `~/.local/bin` (Linux) or `~/Library/Python/3.x/bin` (Mac) to your PATH, or run `python -m graphify`.
+
+> **Avoid `pip install` on Mac/Windows** if possible. The skill resolves Python at runtime from `graphify-out/.graphify_python`; if that points to a different environment than where `pip` installed the package, you'll get `ModuleNotFoundError: No module named 'graphify'`. `uv tool install` and `pipx install` isolate the package in their own env and avoid this entirely.
 
 ### Pick your platform
 
@@ -214,7 +216,7 @@ To remove graphify from all platforms at once: `graphify uninstall` (add `--purg
 
 | Type | Extensions |
 |------|-----------|
-| Code (32 languages) | `.py .ts .tsx .js .jsx .mjs .ets .go .rs .java .c .cpp .h .hpp .rb .cs .kt .scala .php .swift .lua .luau .lh .zig .ps1 .ex .exs .m .mm .jl .vue .svelte .astro .groovy .gradle .dart .v .sv .svh .sql .f .f90 .f95 .f03 .f08 .pas .pp .dpr .dpk .lpr .inc .dfm .lfm .lpk .sh .bash .json .tab .tsv .ini .sln .csproj .fsproj .vbproj .razor .cshtml` |
+| Code (33 languages) | `.py .ts .tsx .js .jsx .mjs .ets .go .rs .java .c .cpp .h .hpp .rb .cs .kt .scala .php .swift .lua .luau .lh .zig .ps1 .ex .exs .m .mm .jl .vue .svelte .astro .groovy .gradle .dart .v .sv .svh .sql .f .f90 .f95 .f03 .f08 .pas .pp .dpr .dpk .lpr .inc .dfm .lfm .lpk .sh .bash .json .tab .tsv .ini .dm .dme .dmi .dmm .dmf .sln .csproj .fsproj .vbproj .razor .cshtml` |
 | MCP configs | `.mcp.json` `mcp.json` `mcp_servers.json` `claude_desktop_config.json` — extracts server nodes, package refs, env var requirements |
 | Docs | `.md .mdx .qmd .html .txt .rst .yaml .yml` |
 | Office | `.docx .xlsx` (requires `pip install graphifyy[office]`) |
@@ -489,6 +491,7 @@ graphify extract ./docs --token-budget 30000   # smaller semantic chunks for loc
 graphify extract ./docs --max-concurrency 2    # fewer parallel LLM calls (useful for local inference)
 graphify extract ./docs --api-timeout 900      # longer HTTP timeout for slow local models (default 600s)
 graphify extract ./docs --google-workspace     # export .gdoc/.gsheet/.gslides via gws before extraction
+graphify extract ./docs --mode deep            # richer semantic extraction via extended system prompt
 graphify extract ./docs --no-cluster           # raw extraction only, skip clustering
 graphify extract ./docs --force                # overwrite graph.json even if new graph has fewer nodes (use after refactors or to clear ghost duplicates)
 graphify extract ./docs --dedup-llm            # LLM tiebreaker for ambiguous entity pairs (uses same API key)
@@ -582,34 +585,31 @@ Built for people whose work lives across hundreds of conversations and documents
 
 ### Development setup
 
-Clone the repo and install in editable mode:
+The project uses [uv](https://docs.astral.sh/uv/) for dev workflow. Install it once, then:
 
 ```bash
 git clone https://github.com/safishamsi/graphify.git
 cd graphify
 git checkout v8                        # active development branch
 
-# Create a virtual environment (Python 3.10+ required):
-python3 -m venv .venv
-source .venv/bin/activate              # Windows: .venv\Scripts\activate
-
-# Install in editable mode with all optional extras:
-pip install -e ".[all]"
+# Create the project venv and install graphify + all extras + the dev group
+# (pytest). uv installs the dev dependency group by default; pass --no-dev to
+# skip it.
+uv sync --all-extras
 ```
 
 Verify the editable install:
 ```bash
-graphify --version
-python -c "import graphify; print(graphify.__file__)"
+uv run graphify --version
+uv run python -c "import graphify; print(graphify.__file__)"
 ```
 
 ### Running tests
 
 ```bash
-pip install pytest
-pytest tests/ -q                       # run the full suite
-pytest tests/test_extract.py -q        # one module
-pytest tests/ -q -k "python"           # filter by name
+uv run pytest tests/ -q                # run the full suite
+uv run pytest tests/test_extract.py -q # one module
+uv run pytest tests/ -q -k "python"    # filter by name
 ```
 
 > macOS note: the test suite includes both `sample.f90` and `sample.F90` fixtures. These collide on case-insensitive HFS+ / APFS file systems. Run on Linux or in a Docker container if you need to test both Fortran variants simultaneously.
@@ -618,7 +618,7 @@ pytest tests/ -q -k "python"           # filter by name
 
 - Active development happens on the `v8` branch.
 - Commit style: `fix: <description>` / `feat: <description>` / `docs: <description>`
-- Before opening a PR, run `pytest tests/ -q` and confirm it passes.
+- Before opening a PR, run `uv run pytest tests/ -q` and confirm it passes.
 - Add a fixture file to `tests/fixtures/` and tests to `tests/test_languages.py` for any new language extractor.
 
 ### What to contribute
