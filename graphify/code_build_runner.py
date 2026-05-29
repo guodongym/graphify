@@ -204,6 +204,7 @@ def build_code_graph(
     tabular_manifest: TabularDomainManifest | None = None,
     active_graphify_output: Path | None = None,
     sidecar_db_path: Path | None = None,
+    manifest_skipped_files: list[dict[str, str]] | None = None,
 ) -> CodeBuildResult:
     """Build a clustered code graph from an explicit file set.
 
@@ -338,6 +339,7 @@ def build_code_graph(
         "files": files_by_type,
         "total_files": len(code_files),
         "total_words": _word_count(code_files),
+        "manifest_skipped_files": manifest_skipped_files or [],
     }
     commit = _git_head()
 
@@ -403,6 +405,7 @@ def build_code_graph(
         "gods": gods,
         "surprises": surprises,
         "tokens": tokens,
+        "manifest_skipped_files": manifest_skipped_files or [],
     }
     state_path = output_dir / ".graphify_state" / "update-state.json"
     current_relative_source_paths = _normalize_state_files(relative_source_paths, repo_root)

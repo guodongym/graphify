@@ -119,13 +119,16 @@ def test_load_domain_manifest_deduplicates_resolved_repo_relative_paths(
     assert result.relative_files_by_type["code"] == ["src/alpha.py"]
 
 
-def test_load_domain_manifest_rejects_empty_files_list(tmp_path: Path) -> None:
+def test_load_domain_manifest_allows_empty_files_list_for_sidecar_only_coordination(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     manifest = _write_manifest(repo / "domain-files.json", repo_root=repo, files=[])
 
-    with pytest.raises(DomainManifestError, match="empty"):
-        load_domain_manifest(manifest, cwd=tmp_path)
+    result = load_domain_manifest(manifest, cwd=tmp_path)
+
+    assert result.source_paths == []
+    assert result.relative_source_paths == []
+    assert result.manifest_skipped_files == []
 
 
 def test_load_domain_manifest_accepts_unicode_file_paths(tmp_path: Path) -> None:
@@ -222,7 +225,40 @@ def test_load_domain_manifest_allows_manifest_json_under_non_output_custom_dir(
         ("script", "#!/usr/bin/env python3\nprint('hi')\n", "no AST extractor"),
     ],
 )
-def test_load_domain_manifest_rejects_non_phase0_ast_files(
+def test_load_domain_manifest_skips_non_phase0_ast_files_by_default(
+    tmp_path: Path,
+    file_name: str,
+    contents: str,
+    message: str,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source = repo / file_name
+    source.write_text(contents, encoding="utf-8")
+    code = repo / "alpha.py"
+    code.write_text("class Alpha: pass\n", encoding="utf-8")
+    manifest = _write_manifest(repo / "domain-files.json", repo_root=repo, files=["alpha.py", file_name])
+
+    result = load_domain_manifest(manifest, cwd=tmp_path)
+
+    assert result.relative_source_paths == ["alpha.py"]
+    assert result.relative_files_by_type["code"] == ["alpha.py"]
+    expected_reason = "unsupported file type" if message == "unsupported" else message
+    assert result.manifest_skipped_files == [{"file": file_name, "reason": expected_reason}]
+
+
+@pytest.mark.parametrize(
+    ("file_name", "contents", "message"),
+    [
+        ("README.md", "# Notes\n", "document"),
+        ("paper.pdf", "%PDF-1.4\n", "paper"),
+        ("diagram.png", "\x89PNG\r\n", "image"),
+        ("clip.mp4", "video", "video"),
+        ("payload.bin", "binary", "unsupported"),
+        ("script", "#!/usr/bin/env python3\nprint('hi')\n", "no AST extractor"),
+    ],
+)
+def test_load_domain_manifest_strict_rejects_non_phase0_ast_files(
     tmp_path: Path,
     file_name: str,
     contents: str,
@@ -235,7 +271,7 @@ def test_load_domain_manifest_rejects_non_phase0_ast_files(
     manifest = _write_manifest(repo / "domain-files.json", repo_root=repo, files=[file_name])
 
     with pytest.raises(DomainManifestError, match=message):
-        load_domain_manifest(manifest, cwd=tmp_path)
+        load_domain_manifest(manifest, cwd=tmp_path, strict=True)
 
 
 def test_load_domain_manifest_rejects_missing_files(tmp_path: Path) -> None:

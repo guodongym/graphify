@@ -119,6 +119,41 @@ def test_manifest_build_sidecar_file_does_not_emit_extract_tab_rows(tmp_path):
     assert not any(node.get("label") in {"row 2", "row 3"} for node in nodes)
 
 
+def test_manifest_build_routes_lua_and_tabular_sidecar_independently(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "kick.lua").write_text("return 'kick'\n", encoding="utf-8")
+    (repo / "skills.tab").write_text(
+        "SkillID\tName\tScript\n100\tKick\tscripts/kick.lua\n",
+        encoding="utf-8",
+    )
+    manifest = repo / "domain-files.json"
+    manifest.write_text(json.dumps({
+        "repo_root": str(repo),
+        "domain_id": "mixed",
+        "files": [
+            {"path": "scripts/kick.lua"},
+            {
+                "path": "skills.tab",
+                "tabular_policy": "sidecar",
+                "primary_key": "SkillID",
+                "anchor_columns": ["Name"],
+            },
+        ],
+    }), encoding="utf-8")
+    out = repo / "graphify-out" / "domains" / "mixed"
+
+    build = run_graphify("extract", "--manifest", str(manifest), "--output-dir", str(out), cwd=repo)
+
+    assert build.returncode == 0, build.stderr
+    graph = json.loads((out / "graph.json").read_text(encoding="utf-8"))
+    assert any(node.get("source_file") == "scripts/kick.lua" for node in graph["nodes"])
+    assert any(str(node.get("id", "")).startswith("tabular_table:") for node in graph["nodes"])
+    assert any(str(node.get("id", "")).startswith("tabular_anchor:") for node in graph["nodes"])
+    assert not any(node.get("type") == "extract_tab" for node in graph["nodes"])
+
+
 def test_manifest_build_prunes_sidecar_db_when_domain_becomes_graph_only(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -188,6 +223,31 @@ def test_manifest_build_sidecar_only_domain_does_not_fail_empty_graph_check(tmp_
     assert any(str(node.get("id", "")).startswith("tabular_column:") for node in graph["nodes"])
     assert not any(str(node.get("id", "")).startswith("tabular_anchor:") for node in graph["nodes"])
     assert graph["graph"]["tabular_sidecar"]["domain_id"] == "tabular-only"
+
+
+def test_manifest_build_txt_sidecar_only_domain_does_not_require_code_files(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "skillevent.txt").write_text("SkillID\tName\n100\tKick\n", encoding="utf-8")
+    manifest = repo / "domain-files.json"
+    manifest.write_text(json.dumps({
+        "repo_root": str(repo),
+        "domain_id": "skill-text",
+        "files": [{
+            "path": "skillevent.txt",
+            "tabular_policy": "sidecar",
+            "primary_key": "SkillID",
+        }],
+    }), encoding="utf-8")
+    out = repo / "graphify-out" / "domains" / "skill-text"
+
+    build = run_graphify("extract", "--manifest", str(manifest), "--output-dir", str(out), cwd=repo)
+
+    assert build.returncode == 0, build.stderr
+    graph = json.loads((out / "graph.json").read_text(encoding="utf-8"))
+    assert graph["graph"]["tabular_sidecar"]["domain_id"] == "skill-text"
+    assert any(node.get("source_file") == "skillevent.txt" for node in graph["nodes"])
+    assert any(str(node.get("id", "")).startswith("tabular_table:") for node in graph["nodes"])
 
 
 def test_manifest_build_accepts_sidecar_db_override(tmp_path):

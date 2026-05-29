@@ -232,6 +232,7 @@ def load_tabular_domain_manifest(
     *,
     cwd: Path | None = None,
     output_dir: Path | None = None,
+    strict: bool = False,
 ) -> TabularDomainManifest:
     cwd = (cwd or Path.cwd()).resolve()
     manifest_path = manifest_path.resolve()
@@ -257,13 +258,15 @@ def load_tabular_domain_manifest(
             source_file = _source_file(path, repo_root)
         except ValueError as exc:
             raise ValueError(f"manifest file escapes repo_root: {raw_path}") from exc
-        _validate_manifest_file_allowed(path, repo_root)
         suffix = path.suffix.lower()
         if suffix not in {".tab", ".tsv", ".txt"}:
             continue
+        _validate_manifest_file_allowed(path, repo_root)
         if suffix == ".txt":
             from graphify.tabular import looks_like_tabular_text
             if not looks_like_tabular_text(path):
+                if not strict:
+                    continue
                 raise ValueError(f"{source_file}: .txt file is not TSV-like enough for tabular sidecar")
         declared = entry.get("tabular_policy", "auto")
         if declared not in {"graph", "sidecar", "auto"}:

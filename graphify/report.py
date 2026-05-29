@@ -56,6 +56,16 @@ def generate(
             "- Verdict: corpus is large enough that graph structure adds value.",
         ]
 
+    skipped_files = detection_result.get("manifest_skipped_files") or []
+    if skipped_files:
+        lines += ["", "## Manifest Skipped Files"]
+        for item in skipped_files[:50]:
+            file_name = item.get("file", "")
+            reason = item.get("reason", "skipped")
+            lines.append(f"- `{file_name}` - {reason}")
+        if len(skipped_files) > 50:
+            lines.append(f"- ... {len(skipped_files) - 50} more skipped files")
+
     from .analyze import _is_file_node as _ifn
     non_empty = {cid: nodes for cid, nodes in communities.items()
                  if any(not _ifn(G, n) for n in nodes)}

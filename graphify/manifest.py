@@ -30,6 +30,7 @@ class DomainManifest:
     relative_source_paths: list[str]
     files_by_type: dict[str, list[str]]
     relative_files_by_type: dict[str, list[str]]
+    manifest_skipped_files: list[dict[str, str]]
 
 
 _NATIVE_MANIFEST_RELATIVE_PATH = Path("graphify-out") / "manifest.json"
@@ -124,13 +125,16 @@ def load_domain_manifest(
     manifest_path: str | Path,
     *,
     cwd: str | Path | None = None,
+    strict: bool = False,
 ) -> DomainManifest:
-    """Load and validate a caller-owned Phase 0 domain file manifest.
+    """Load a caller-owned Phase 0 domain file manifest.
 
     The accepted schema is intentionally small: ``repo_root`` plus
     ``files[].path``. Unknown caller-owned fields are ignored. Accepted files
     are returned as absolute paths for materialization and repo-root-relative
-    POSIX paths for Graphify identity fields and manifest-mode state.
+    POSIX paths for Graphify identity fields and manifest-mode state. By
+    default, unsupported files are skipped so manifest mode behaves like native
+    directory scanning. Set ``strict`` to preserve fail-fast validation.
     """
 
     command_cwd = Path.cwd().resolve() if cwd is None else Path(cwd).resolve()
@@ -160,6 +164,7 @@ def load_domain_manifest(
     relative_source_paths: list[str] = []
     files_by_type = _empty_files_by_type()
     relative_files_by_type = _empty_files_by_type()
+    manifest_skipped_files: list[dict[str, str]] = []
     seen_relative_paths: set[str] = set()
 
     for index, entry in enumerate(files):
@@ -189,15 +194,30 @@ def load_domain_manifest(
 
         file_type = classify_file(resolved_path)
         if file_type is None:
+            if not strict:
+                manifest_skipped_files.append(
+                    {"file": relative_path, "reason": "unsupported file type"}
+                )
+                continue
             raise DomainManifestError(
                 f"manifest file is unsupported in Phase 0: {relative_path}"
             )
         if file_type != FileType.CODE:
+            if not strict:
+                manifest_skipped_files.append(
+                    {"file": relative_path, "reason": file_type.value}
+                )
+                continue
             raise DomainManifestError(
                 f"manifest file is classified as {file_type.value}, but Phase 0 "
                 f"manifest builds only accept AST/code files: {relative_path}"
             )
         if _get_extractor(resolved_path) is None:
+            if not strict:
+                manifest_skipped_files.append(
+                    {"file": relative_path, "reason": "no AST extractor"}
+                )
+                continue
             raise DomainManifestError(
                 f"manifest file has no AST extractor in Phase 0: {relative_path}"
             )
@@ -207,11 +227,6 @@ def load_domain_manifest(
         files_by_type[FileType.CODE.value].append(str(resolved_path))
         relative_files_by_type[FileType.CODE.value].append(relative_path)
 
-    if not source_paths:
-        raise DomainManifestError(
-            "manifest files list is empty or contains no accepted files"
-        )
-
     return DomainManifest(
         manifest_path=resolved_manifest_path,
         repo_root=repo_root,
@@ -219,6 +234,7 @@ def load_domain_manifest(
         relative_source_paths=relative_source_paths,
         files_by_type=files_by_type,
         relative_files_by_type=relative_files_by_type,
+        manifest_skipped_files=manifest_skipped_files,
     )
 
 

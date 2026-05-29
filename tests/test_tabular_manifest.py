@@ -167,6 +167,29 @@ def test_manifest_explicit_filtered_file_fails_closed(tmp_path):
         load_tabular_domain_manifest(manifest, cwd=tmp_path)
 
 
+def test_non_tabular_manifest_files_are_not_validated_by_tabular_loader(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    scripts = repo / "client" / "scripts" / "player"
+    scripts.mkdir(parents=True)
+    (repo / ".graphifyignore").write_text("client/scripts/player/token.lua\n", encoding="utf-8")
+    (scripts / "token.lua").write_text("return 'token'\n", encoding="utf-8")
+    (repo / "skills.tab").write_text("SkillID\tName\n1\tKick\n", encoding="utf-8")
+    manifest = write_manifest(tmp_path, {
+        "repo_root": str(repo),
+        "domain_id": "mixed",
+        "files": [
+            {"path": "client/scripts/player/token.lua"},
+            {"path": "skills.tab", "tabular_policy": "sidecar"},
+        ],
+    })
+
+    loaded = load_tabular_domain_manifest(manifest, cwd=tmp_path)
+
+    assert [f.source_file for f in loaded.files] == ["skills.tab"]
+    assert [f.source_file for f in loaded.sidecar_active_files] == ["skills.tab"]
+
+
 def test_tsv_file_can_use_sidecar_policy(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()

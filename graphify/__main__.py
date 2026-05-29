@@ -64,6 +64,7 @@ def _parse_manifest_cli_args(args: list[str]) -> dict:
         "positionals": [],
         "no_cluster": False,
         "max_workers": None,
+        "strict_manifest": False,
         "unsupported": [],
         "unknown_options": [],
     }
@@ -130,6 +131,9 @@ def _parse_manifest_cli_args(args: list[str]) -> dict:
                 parsed["max_workers"] = int(arg.split("=", 1)[1])
             except ValueError as exc:
                 raise ValueError("--max-workers must be a positive integer") from exc
+            i += 1
+        elif arg == "--strict-manifest":
+            parsed["strict_manifest"] = True
             i += 1
         elif arg == "--no-cluster":
             parsed["no_cluster"] = True
@@ -198,7 +202,8 @@ def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
         option = parsed["unsupported"][0]
         print(
             f"error: {option} is not supported with --manifest; "
-            "manifest mode only accepts --manifest, --output-dir, --sidecar-db, and --max-workers.",
+            "manifest mode only accepts --manifest, --output-dir, --sidecar-db, "
+            "--max-workers, and --strict-manifest.",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -221,7 +226,11 @@ def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
     from graphify.tabular_manifest import load_tabular_domain_manifest
 
     try:
-        domain = load_domain_manifest(manifest_arg, cwd=Path.cwd())
+        domain = load_domain_manifest(
+            manifest_arg,
+            cwd=Path.cwd(),
+            strict=parsed["strict_manifest"],
+        )
         manifest_path = _resolve_cli_path(manifest_arg)
         output_dir = _resolve_cli_path(output_dir_arg)
 
@@ -229,7 +238,22 @@ def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
             manifest_path,
             cwd=Path.cwd(),
             output_dir=output_dir,
+            strict=parsed["strict_manifest"],
         )
+
+        if not domain.source_paths and not tabular_manifest.sidecar_active_files:
+            skipped = domain.manifest_skipped_files
+            if skipped:
+                preview = ", ".join(
+                    f"{item['file']} ({item['reason']})" for item in skipped[:5]
+                )
+                if len(skipped) > 5:
+                    preview += f", ... {len(skipped) - 5} more"
+                raise DomainManifestError(
+                    "no supported code or tabular files in manifest; "
+                    f"skipped {len(skipped)} files: {preview}"
+                )
+            raise DomainManifestError("no supported code or tabular files in manifest")
 
         active_graphify_output = Path(
             os.environ.get("GRAPHIFY_OUT", "")
@@ -252,6 +276,7 @@ def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
             tabular_manifest=tabular_manifest,
             active_graphify_output=active_graphify_output,
             sidecar_db_path=sidecar_db_path,
+            manifest_skipped_files=domain.manifest_skipped_files,
         )
     except DomainManifestError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -265,19 +290,26 @@ def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
         f"{result.node_count} nodes, {result.edge_count} edges, "
         f"{result.community_count} communities"
     )
+    if domain.manifest_skipped_files:
+        print(
+            f"[graphify {command}] skipped {len(domain.manifest_skipped_files)} "
+            "manifest files; see GRAPH_REPORT.md",
+            file=sys.stderr,
+        )
     return True
 
 
 def _print_update_help() -> None:
     print("Usage:")
     print("  graphify update [path] [--force] [--no-cluster]")
-    print("  graphify update --manifest FILE --output-dir DIR [--sidecar-db PATH] [--max-workers N]")
+    print("  graphify update --manifest FILE --output-dir DIR [--sidecar-db PATH] [--max-workers N] [--strict-manifest]")
     print()
     print("Manifest mode:")
     print("  --manifest FILE       caller-owned domain file list, e.g. domain-files.json")
     print("  --output-dir DIR      exact output directory; writes DIR/graph.json directly")
     print("  --sidecar-db PATH     override shared tabular sidecar SQLite DB path")
     print("  --max-workers N       AST extraction subprocess count")
+    print("  --strict-manifest     fail on the first unsupported manifest file")
     print()
     print("Rules:")
     print("  --manifest and positional path are mutually exclusive")
@@ -289,13 +321,14 @@ def _print_update_help() -> None:
 def _print_extract_help() -> None:
     print("Usage:")
     print("  graphify extract <path> [--backend B] [--model M] [--out DIR]")
-    print("  graphify extract --manifest FILE --output-dir DIR [--sidecar-db PATH] [--max-workers N]")
+    print("  graphify extract --manifest FILE --output-dir DIR [--sidecar-db PATH] [--max-workers N] [--strict-manifest]")
     print()
     print("Manifest mode:")
     print("  --manifest FILE       caller-owned domain file list, e.g. domain-files.json")
     print("  --output-dir DIR      exact output directory; writes DIR/graph.json directly")
     print("  --sidecar-db PATH     override shared tabular sidecar SQLite DB path")
     print("  --max-workers N       AST extraction subprocess count")
+    print("  --strict-manifest     fail on the first unsupported manifest file")
     print()
     print("Directory mode:")
     print("  --out DIR             writes <DIR>/graphify-out/ (unchanged native behavior)")

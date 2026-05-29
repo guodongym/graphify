@@ -780,7 +780,7 @@ def test_empty_manifest_fails_clearly_before_build(tmp_path: Path) -> None:
     )
 
     assert result.returncode != 0
-    assert "manifest files list is empty" in result.stderr
+    assert "no supported code or tabular files in manifest" in result.stderr
     assert "produced an empty graph" not in result.stderr
     _assert_no_build_outputs(out_dir)
 
@@ -810,7 +810,55 @@ def test_duplicate_manifest_entries_are_deduplicated_in_state(tmp_path: Path) ->
     assert state["current_files_by_type"]["code"] == ["src/alpha.py"]
 
 
-def test_unsupported_manifest_file_fails_before_writing_graph(tmp_path: Path) -> None:
+def test_manifest_skips_unsupported_file_and_reports_it(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo)
+    out_dir, manifest = _domain_paths(repo)
+    _write_manifest(manifest, files=["src/alpha.py", "payload.bin"])
+
+    result = _run(
+        ["extract", "--manifest", str(manifest), "--output-dir", str(out_dir)],
+        cwd=repo,
+    )
+
+    assert result.returncode == 0, result.stderr
+    _assert_direct_domain_outputs(out_dir)
+    graph = _read_graph(out_dir / "graph.json")
+    assert "src/alpha.py" in _source_files(graph)
+    assert "payload.bin" not in _source_files(graph)
+    analysis = json.loads((out_dir / ".graphify_analysis.json").read_text(encoding="utf-8"))
+    assert analysis["manifest_skipped_files"] == [
+        {"file": "payload.bin", "reason": "unsupported file type"}
+    ]
+    report = (out_dir / "GRAPH_REPORT.md").read_text(encoding="utf-8")
+    assert "## Manifest Skipped Files" in report
+    assert "`payload.bin` - unsupported file type" in report
+
+
+def test_manifest_skips_non_tabular_txt_without_blocking_code_build(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo)
+    (repo / "notes.txt").write_text("plain notes without tabular columns\n", encoding="utf-8")
+    out_dir, manifest = _domain_paths(repo)
+    _write_manifest(manifest, files=["src/alpha.py", "notes.txt"])
+
+    result = _run(
+        ["extract", "--manifest", str(manifest), "--output-dir", str(out_dir)],
+        cwd=repo,
+    )
+
+    assert result.returncode == 0, result.stderr
+    _assert_direct_domain_outputs(out_dir)
+    graph = _read_graph(out_dir / "graph.json")
+    assert "src/alpha.py" in _source_files(graph)
+    assert "notes.txt" not in _source_files(graph)
+    analysis = json.loads((out_dir / ".graphify_analysis.json").read_text(encoding="utf-8"))
+    assert analysis["manifest_skipped_files"] == [
+        {"file": "notes.txt", "reason": "document"}
+    ]
+
+
+def test_unsupported_only_manifest_file_fails_before_writing_graph(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _write_repo(repo)
     out_dir, manifest = _domain_paths(repo)
@@ -822,8 +870,58 @@ def test_unsupported_manifest_file_fails_before_writing_graph(tmp_path: Path) ->
     )
 
     assert result.returncode != 0
+    assert "no supported code or tabular files in manifest" in result.stderr
+    assert "unsupported file type" in result.stderr
+    assert "payload.bin" in result.stderr
+    _assert_no_build_outputs(out_dir)
+
+
+def test_strict_manifest_rejects_unsupported_file_before_writing_graph(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo)
+    out_dir, manifest = _domain_paths(repo)
+    _write_manifest(manifest, files=["src/alpha.py", "payload.bin"])
+
+    result = _run(
+        [
+            "extract",
+            "--manifest",
+            str(manifest),
+            "--output-dir",
+            str(out_dir),
+            "--strict-manifest",
+        ],
+        cwd=repo,
+    )
+
+    assert result.returncode != 0
     assert "unsupported" in result.stderr.lower()
     assert "payload.bin" in result.stderr
+    _assert_no_build_outputs(out_dir)
+
+
+def test_strict_manifest_rejects_non_tabular_txt_before_writing_graph(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo)
+    (repo / "notes.txt").write_text("plain notes without tabular columns\n", encoding="utf-8")
+    out_dir, manifest = _domain_paths(repo)
+    _write_manifest(manifest, files=["src/alpha.py", "notes.txt"])
+
+    result = _run(
+        [
+            "extract",
+            "--manifest",
+            str(manifest),
+            "--output-dir",
+            str(out_dir),
+            "--strict-manifest",
+        ],
+        cwd=repo,
+    )
+
+    assert result.returncode != 0
+    assert "notes.txt" in result.stderr
+    assert "document" in result.stderr.lower()
     _assert_no_build_outputs(out_dir)
 
 
@@ -875,7 +973,7 @@ def test_update_malformed_manifest_fails_without_falling_back_to_directory_scan(
     assert not (repo / "graphify-out" / "manifest.json").exists()
 
 
-def test_document_paper_and_image_manifest_files_are_rejected_in_phase_0(tmp_path: Path) -> None:
+def test_document_paper_and_image_only_manifest_files_fail_as_unsupported_domain(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     files = _write_repo(repo)
 
@@ -895,7 +993,7 @@ def test_document_paper_and_image_manifest_files_are_rejected_in_phase_0(tmp_pat
         assert result.returncode != 0
         err = result.stderr.lower()
         assert source_path.name.lower() in err
-        assert any(term in err for term in ("phase 0", "directory", "later", "semantic"))
+        assert "no supported code or tabular files in manifest" in err
         assert not (out_dir / "graph.json").exists()
 
 
