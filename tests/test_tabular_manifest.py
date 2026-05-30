@@ -152,7 +152,27 @@ def test_duplicate_header_selector_requires_column_index(tmp_path):
         load_tabular_domain_manifest(manifest, cwd=tmp_path)
 
 
-def test_manifest_explicit_filtered_file_fails_closed(tmp_path):
+def test_manifest_explicit_filtered_file_is_skipped_by_default(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".graphifyignore").write_text("secret.tab\n", encoding="utf-8")
+    (repo / "secret.tab").write_text("ID\tName\n1\tHidden\n", encoding="utf-8")
+    manifest = write_manifest(tmp_path, {
+        "repo_root": str(repo),
+        "domain_id": "secure",
+        "files": [{"path": "secret.tab", "tabular_policy": "sidecar"}],
+    })
+
+    loaded = load_tabular_domain_manifest(manifest, cwd=tmp_path)
+
+    assert loaded.files == ()
+    assert loaded.sidecar_active_files == ()
+    assert loaded.manifest_skipped_files == (
+        {"file": "secret.tab", "reason": "filtered by Graphify file policy"},
+    )
+
+
+def test_manifest_explicit_filtered_file_fails_closed_in_strict_mode(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".graphifyignore").write_text("secret.tab\n", encoding="utf-8")
@@ -164,6 +184,20 @@ def test_manifest_explicit_filtered_file_fails_closed(tmp_path):
     })
 
     with pytest.raises(ValueError, match="filtered by Graphify file policy"):
+        load_tabular_domain_manifest(manifest, cwd=tmp_path, strict=True)
+
+
+def test_manifest_missing_filtered_file_still_fails(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".graphifyignore").write_text("missing.tab\n", encoding="utf-8")
+    manifest = write_manifest(tmp_path, {
+        "repo_root": str(repo),
+        "domain_id": "secure",
+        "files": [{"path": "missing.tab", "tabular_policy": "sidecar"}],
+    })
+
+    with pytest.raises(ValueError, match="missing.tab: file not found"):
         load_tabular_domain_manifest(manifest, cwd=tmp_path)
 
 

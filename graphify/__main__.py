@@ -170,6 +170,17 @@ def _resolve_cli_path(path_value: str) -> Path:
     return path.resolve()
 
 
+def _merge_manifest_skipped_files(*groups: list[dict[str, str]] | tuple[dict[str, str], ...]) -> list[dict[str, str]]:
+    merged: dict[str, dict[str, str]] = {}
+    for group in groups:
+        for item in group:
+            file_name = item["file"]
+            current = merged.get(file_name)
+            if current is None or item["reason"] == "filtered by Graphify file policy":
+                merged[file_name] = {"file": file_name, "reason": item["reason"]}
+    return list(merged.values())
+
+
 def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
     try:
         parsed = _parse_manifest_cli_args(args)
@@ -240,9 +251,13 @@ def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
             output_dir=output_dir,
             strict=parsed["strict_manifest"],
         )
+        manifest_skipped_files = _merge_manifest_skipped_files(
+            domain.manifest_skipped_files,
+            tabular_manifest.manifest_skipped_files,
+        )
 
         if not domain.source_paths and not tabular_manifest.sidecar_active_files:
-            skipped = domain.manifest_skipped_files
+            skipped = manifest_skipped_files
             if skipped:
                 preview = ", ".join(
                     f"{item['file']} ({item['reason']})" for item in skipped[:5]
@@ -276,7 +291,7 @@ def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
             tabular_manifest=tabular_manifest,
             active_graphify_output=active_graphify_output,
             sidecar_db_path=sidecar_db_path,
-            manifest_skipped_files=domain.manifest_skipped_files,
+            manifest_skipped_files=manifest_skipped_files,
         )
     except DomainManifestError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -290,9 +305,9 @@ def _maybe_run_manifest_code_build(command: str, args: list[str]) -> bool:
         f"{result.node_count} nodes, {result.edge_count} edges, "
         f"{result.community_count} communities"
     )
-    if domain.manifest_skipped_files:
+    if manifest_skipped_files:
         print(
-            f"[graphify {command}] skipped {len(domain.manifest_skipped_files)} "
+            f"[graphify {command}] skipped {len(manifest_skipped_files)} "
             "manifest files; see GRAPH_REPORT.md",
             file=sys.stderr,
         )

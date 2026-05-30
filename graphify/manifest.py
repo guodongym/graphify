@@ -192,6 +192,18 @@ def load_domain_manifest(
         if not resolved_path.is_file():
             raise DomainManifestError(f"manifest file is missing: {relative_path}")
 
+        if resolved_path.suffix.lower() in {".tab", ".tsv", ".txt"}:
+            from graphify.tabular_manifest import _manifest_file_policy_error
+
+            policy_error = _manifest_file_policy_error(resolved_path, repo_root)
+            if policy_error is not None:
+                if not strict and policy_error == "filtered by Graphify file policy":
+                    manifest_skipped_files.append(
+                        {"file": relative_path, "reason": policy_error}
+                    )
+                    continue
+                raise DomainManifestError(f"{relative_path}: {policy_error}")
+
         file_type = classify_file(resolved_path)
         if file_type is None:
             if not strict:

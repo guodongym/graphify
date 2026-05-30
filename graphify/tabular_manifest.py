@@ -54,6 +54,7 @@ class TabularDomainManifest:
     files: tuple[TabularFileConfig, ...]
     sidecar_active_files: tuple[TabularFileConfig, ...]
     sidecar_domain_config_hash: str | None
+    manifest_skipped_files: tuple[dict[str, str], ...] = ()
 
 
 def canonical_json_hash(payload: dict) -> str:
@@ -214,17 +215,26 @@ def _default_domain_id(repo_root: Path, output_dir: Path | None, explicit: objec
     return rel
 
 
-def _validate_manifest_file_allowed(path: Path, repo_root: Path) -> None:
+def _manifest_file_policy_error(path: Path, repo_root: Path) -> str | None:
     from graphify.detect import _is_ignored, _is_noise_dir, _is_sensitive, _load_graphifyignore
 
     patterns = _load_graphifyignore(repo_root)
     rel = path.resolve().relative_to(repo_root).as_posix()
-    if any(_is_noise_dir(part) for part in path.resolve().relative_to(repo_root).parts[:-1]):
-        raise ValueError(f"{rel}: filtered by Graphify file policy")
-    if _is_ignored(path, repo_root, patterns) or _is_sensitive(path):
-        raise ValueError(f"{rel}: filtered by Graphify file policy")
     if not path.exists():
-        raise ValueError(f"{rel}: file not found")
+        return "file not found"
+    if any(_is_noise_dir(part) for part in path.resolve().relative_to(repo_root).parts[:-1]):
+        return "filtered by Graphify file policy"
+    if _is_ignored(path, repo_root, patterns) or _is_sensitive(path):
+        return "filtered by Graphify file policy"
+    return None
+
+
+def _validate_manifest_file_allowed(path: Path, repo_root: Path) -> None:
+    reason = _manifest_file_policy_error(path, repo_root)
+    if reason is None:
+        return
+    rel = path.resolve().relative_to(repo_root).as_posix()
+    raise ValueError(f"{rel}: {reason}")
 
 
 def load_tabular_domain_manifest(
@@ -249,6 +259,7 @@ def load_tabular_domain_manifest(
     raw_domain_id = payload.get("domain_id")
 
     files: list[TabularFileConfig] = []
+    manifest_skipped_files: list[dict[str, str]] = []
     for entry in payload.get("files", []):
         raw_path = entry.get("path")
         if not isinstance(raw_path, str):
@@ -261,7 +272,14 @@ def load_tabular_domain_manifest(
         suffix = path.suffix.lower()
         if suffix not in {".tab", ".tsv", ".txt"}:
             continue
-        _validate_manifest_file_allowed(path, repo_root)
+        policy_error = _manifest_file_policy_error(path, repo_root)
+        if policy_error is not None:
+            if not strict and policy_error == "filtered by Graphify file policy":
+                manifest_skipped_files.append(
+                    {"file": source_file, "reason": policy_error}
+                )
+                continue
+            raise ValueError(f"{source_file}: {policy_error}")
         if suffix == ".txt":
             from graphify.tabular import looks_like_tabular_text
             if not looks_like_tabular_text(path):
@@ -324,4 +342,5 @@ def load_tabular_domain_manifest(
         files=_ComparableTuple(files),
         sidecar_active_files=_ComparableTuple(sidecar_active),
         sidecar_domain_config_hash=domain_hash,
+        manifest_skipped_files=tuple(manifest_skipped_files),
     )

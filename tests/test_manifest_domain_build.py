@@ -858,6 +858,54 @@ def test_manifest_skips_non_tabular_txt_without_blocking_code_build(tmp_path: Pa
     ]
 
 
+def test_manifest_skips_policy_filtered_tabular_file_without_extracting_it(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo)
+    (repo / ".graphifyignore").write_text("secret.tab\n", encoding="utf-8")
+    (repo / "secret.tab").write_text("ID\tName\n1\tHidden\n", encoding="utf-8")
+    out_dir, manifest = _domain_paths(repo)
+    _write_manifest(manifest, files=["src/alpha.py", "secret.tab"])
+
+    result = _run(
+        ["extract", "--manifest", str(manifest), "--output-dir", str(out_dir)],
+        cwd=repo,
+    )
+
+    assert result.returncode == 0, result.stderr
+    _assert_direct_domain_outputs(out_dir)
+    graph = _read_graph(out_dir / "graph.json")
+    assert "src/alpha.py" in _source_files(graph)
+    assert "secret.tab" not in _source_files(graph)
+    state = json.loads(
+        (out_dir / ".graphify_state" / "update-state.json").read_text(encoding="utf-8")
+    )
+    assert state["files"] == ["src/alpha.py"]
+    analysis = json.loads((out_dir / ".graphify_analysis.json").read_text(encoding="utf-8"))
+    assert analysis["manifest_skipped_files"] == [
+        {"file": "secret.tab", "reason": "filtered by Graphify file policy"}
+    ]
+
+
+def test_manifest_fails_when_all_tabular_files_are_policy_filtered(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo)
+    (repo / ".graphifyignore").write_text("secret.tab\n", encoding="utf-8")
+    (repo / "secret.tab").write_text("ID\tName\n1\tHidden\n", encoding="utf-8")
+    out_dir, manifest = _domain_paths(repo)
+    _write_manifest(manifest, files=["secret.tab"])
+
+    result = _run(
+        ["extract", "--manifest", str(manifest), "--output-dir", str(out_dir)],
+        cwd=repo,
+    )
+
+    assert result.returncode != 0
+    assert "no supported code or tabular files in manifest" in result.stderr
+    assert "secret.tab" in result.stderr
+    assert "filtered by Graphify file policy" in result.stderr
+    _assert_no_build_outputs(out_dir)
+
+
 def test_unsupported_only_manifest_file_fails_before_writing_graph(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _write_repo(repo)
