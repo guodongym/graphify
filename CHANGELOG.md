@@ -2,6 +2,10 @@
 
 Full release notes with details on each version: [GitHub Releases](https://github.com/safishamsi/graphify/releases)
 
+## 0.8.24+hanhai.0.4.2 (2026-05-30)
+
+- Fix: manifest-scoped tabular files filtered by Graphify file policy are skipped consistently in non-strict mode and reported in manifest skipped-file metadata, preventing ignored tabular files from surfacing later as missing sidecar inputs.
+
 ## 0.8.24+hanhai.0.4.1 (2026-05-30)
 
 - Fix: tabular sidecar path-reference extraction now only scans path-like columns and ignores filesystem `OSError` during path resolution, avoiding JX3 `skillevent.txt` prose descriptions being misread as ultra-long paths during full sync.
