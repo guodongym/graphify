@@ -19,7 +19,6 @@ graphify-out/
 .claude/
 .worktrees/
 skills/
-docs/superpowers/
 .vscode/
 openspec/
 # Local benchmark scripts — never commit
