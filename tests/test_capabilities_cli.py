@@ -27,6 +27,8 @@ def test_capabilities_json_reports_tabular_sidecar_modes(tmp_path):
     assert payload["tabular_sidecar"]["default_write_mode"] == "staging-merge"
     assert payload["tabular_sidecar"]["supports_domain_staging_merge"] is True
     assert payload["tabular_sidecar"]["supports_build_trace"] is True
+    assert "parallel_safe" in payload["tabular_sidecar"]
+    assert isinstance(payload["tabular_sidecar"]["parallel_safe"], bool)
 
 
 def test_capabilities_rejects_non_json_output_for_now(tmp_path):

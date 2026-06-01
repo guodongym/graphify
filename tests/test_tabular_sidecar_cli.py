@@ -314,6 +314,10 @@ def test_manifest_build_writes_build_trace(tmp_path):
     assert trace["sidecar_mode"] == "staging-merge"
     assert trace["sidecar"]["files_staged"] == 1
     assert trace["sidecar"]["files_merged"] == 1
+    assert trace["stages"]["code_extract_ms"] >= 0
+    assert trace["stages"]["graph_build_ms"] >= 0
+    assert trace["stages"]["cluster_ms"] >= 0
+    assert trace["stages"]["report_export_ms"] >= 0
 
 
 def test_manifest_build_writes_failed_trace_when_sidecar_merge_fails(tmp_path):
@@ -410,3 +414,27 @@ def test_parallel_domain_builds_share_canonical_sidecar(tmp_path):
     assert search_b.returncode == 0, search_b.stderr
     assert json.loads(search_a.stdout)["rows"][0]["row_json"]["ID"] == "1"
     assert json.loads(search_b.stdout)["rows"][0]["row_json"]["ID"] == "1"
+
+    # Verify graph.json metadata for both domains
+    for domain_id in sorted(domains):
+        graph_path = repo / "graphify-out" / "domains" / domain_id / "graph.json"
+        assert graph_path.exists(), f"{domain_id} missing graph.json"
+        graph_data = json.loads(graph_path.read_text(encoding="utf-8"))
+        meta = graph_data.get("graph", {}).get("tabular_sidecar", {})
+        assert meta.get("sidecar_mode") == "staging-merge", f"{domain_id} wrong sidecar_mode"
+        assert meta.get("staging_run_id"), f"{domain_id} missing staging_run_id"
+
+    # Verify sidecar search works for both domains
+    for did, col in [("domain-a", "Name"), ("domain-b", "Value")]:
+        out = run_graphify(
+            "sidecar", "search",
+            "--db", str(sidecar_db),
+            "--domain", did,
+            "--column", col,
+            "--value", "Alpha" if col == "Name" else "100",
+            cwd=repo,
+        )
+        assert out.returncode == 0, out.stderr
+        rows = json.loads(out.stdout)["rows"]
+        assert len(rows) >= 1, f"{did} search returned no rows"
+        assert rows[0]["row_json"]["ID"] == "1"
