@@ -2,6 +2,12 @@
 
 Full release notes with details on each version: [GitHub Releases](https://github.com/safishamsi/graphify/releases)
 
+## 0.8.24+hanhai.0.4.3 (2026-06-01)
+
+- Feat: add parallel-safe tabular sidecar staging/merge writes with build-trace and capabilities reporting for manifest-scoped domain builds.
+- Fix: preserve the capabilities contract by falling back to shared-serial sidecar writes when file locking is unavailable.
+- Fix: refresh canonical sidecar payloads when parser version or encoding changes without a content hash change, avoiding stale parsed rows after parser-only upgrades.
+
 ## 0.8.24+hanhai.0.4.2 (2026-05-30)
 
 - Fix: manifest-scoped tabular files filtered by Graphify file policy are skipped consistently in non-strict mode and reported in manifest skipped-file metadata, preventing ignored tabular files from surfacing later as missing sidecar inputs.

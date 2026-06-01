@@ -272,15 +272,17 @@ def build_code_graph(
         from uuid import uuid4
 
         from graphify.build_trace import BuildTrace
-        from graphify.tabular_sidecar import read_sidecar_meta, read_sidecar_domain_config_hash
+        from graphify.capabilities import _has_file_locking
+        from graphify.tabular_sidecar import read_sidecar_meta, read_sidecar_domain_config_hash, update_sidecar
         from graphify.tabular_sidecar_paths import plan_sidecar_paths
         from graphify.tabular_sidecar_staging import merge_domain_staging, write_staging_sidecar
 
         run_id = uuid4().hex
         attempt_id = uuid4().hex
+        sidecar_mode = "staging-merge" if _has_file_locking() else "shared-serial"
         trace = BuildTrace(
             domain_id=tabular_manifest.domain_id,
-            sidecar_mode="staging-merge",
+            sidecar_mode=sidecar_mode,
             process_workers=max_workers,
         )
         path_plan = plan_sidecar_paths(
@@ -302,29 +304,43 @@ def build_code_graph(
             ) is not None
         if should_update_sidecar:
             try:
-                stage_start = perf_counter()
-                sidecar_update_stats = write_staging_sidecar(
-                    path_plan.staging_db,
-                    tabular_manifest,
-                    run_id=run_id,
-                    attempt_id=attempt_id,
-                )
-                trace.record_stage_ms("sidecar_stage_write_ms", int((perf_counter() - stage_start) * 1000))
-                trace.record_sidecar(
-                    files_staged=sidecar_update_stats.files_upserted,
-                    rows_staged=sidecar_update_stats.rows_upserted,
-                )
-                merge_start = perf_counter()
-                merge_stats = merge_domain_staging(tabular_manifest.domain_id, path_plan.staging_db, effective_sidecar_db)
-                trace.record_stage_ms("sidecar_merge_write_ms", int((perf_counter() - merge_start) * 1000))
-                trace.record_sidecar(
-                    files_merged=merge_stats.files_merged,
-                    rows_merged=merge_stats.rows_merged,
-                    files_pruned=merge_stats.files_pruned,
-                    rows_pruned=merge_stats.rows_pruned,
-                    indexed_values_merged=merge_stats.indexes_merged,
-                    refs_merged=merge_stats.refs_merged,
-                )
+                if sidecar_mode == "staging-merge":
+                    stage_start = perf_counter()
+                    sidecar_update_stats = write_staging_sidecar(
+                        path_plan.staging_db,
+                        tabular_manifest,
+                        run_id=run_id,
+                        attempt_id=attempt_id,
+                    )
+                    trace.record_stage_ms("sidecar_stage_write_ms", int((perf_counter() - stage_start) * 1000))
+                    trace.record_sidecar(
+                        files_staged=sidecar_update_stats.files_upserted,
+                        rows_staged=sidecar_update_stats.rows_upserted,
+                    )
+                    merge_start = perf_counter()
+                    merge_stats = merge_domain_staging(tabular_manifest.domain_id, path_plan.staging_db, effective_sidecar_db)
+                    trace.record_stage_ms("sidecar_merge_write_ms", int((perf_counter() - merge_start) * 1000))
+                    trace.record_sidecar(
+                        files_merged=merge_stats.files_merged,
+                        rows_merged=merge_stats.rows_merged,
+                        files_pruned=merge_stats.files_pruned,
+                        rows_pruned=merge_stats.rows_pruned,
+                        indexed_values_merged=merge_stats.indexes_merged,
+                        refs_merged=merge_stats.refs_merged,
+                    )
+                else:
+                    write_start = perf_counter()
+                    sidecar_update_stats = update_sidecar(effective_sidecar_db, tabular_manifest)
+                    elapsed_ms = int((perf_counter() - write_start) * 1000)
+                    trace.record_stage_ms("sidecar_stage_write_ms", elapsed_ms)
+                    trace.record_stage_ms("sidecar_merge_write_ms", elapsed_ms)
+                    trace.record_sidecar(
+                        files_staged=sidecar_update_stats.files_upserted,
+                        rows_staged=sidecar_update_stats.rows_upserted,
+                        files_merged=sidecar_update_stats.files_upserted,
+                        rows_merged=sidecar_update_stats.rows_upserted,
+                        rows_pruned=sidecar_update_stats.rows_pruned,
+                    )
                 sidecar_meta = read_sidecar_meta(effective_sidecar_db)
                 if has_sidecar_projection:
                     from graphify.tabular_graph import merge_sidecar_projection
@@ -342,7 +358,7 @@ def build_code_graph(
                     trace.write_failed(output_dir, error_class=exc.__class__.__name__, error_message=str(exc))
                 raise
             finally:
-                if path_plan is not None:
+                if sidecar_mode == "staging-merge" and path_plan is not None:
                     from graphify.tabular_sidecar_staging import cleanup_staging_attempt
                     cleanup_staging_attempt(path_plan.staging_db)
 
@@ -379,7 +395,7 @@ def build_code_graph(
                 graphify_output=effective_graphify_output,
                 db_path=effective_sidecar_db,
                 sidecar_meta=sidecar_meta,
-                sidecar_mode="staging-merge",
+                sidecar_mode=sidecar_mode,
                 staging_run_id=run_id if merge_stats is not None else None,
                 staging_attempt_id=attempt_id if merge_stats is not None else None,
                 merge_generation_before=merge_stats.generation_before if merge_stats is not None else None,
@@ -452,8 +468,8 @@ def build_code_graph(
             sidecar_stats_dict["rows_rebuilt"] = sidecar_update_stats.rows_upserted
             sidecar_stats_dict["rows_pruned"] = sidecar_update_stats.rows_pruned
 
+            sidecar_stats_dict["sidecar_mode"] = sidecar_mode
             if merge_stats is not None:
-                sidecar_stats_dict["sidecar_mode"] = "staging-merge"
                 sidecar_stats_dict["merge_generation_before"] = merge_stats.generation_before
                 sidecar_stats_dict["merge_generation_after"] = merge_stats.generation_after
 

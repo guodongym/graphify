@@ -154,9 +154,7 @@ def merge_domain_staging(domain_id: str, staging_db: Path, canonical_db: Path) -
                         INSERT INTO source_files(source_file, file_key, sha256, parser_version, union_config_hash, encoding)
                         VALUES(?, ?, ?, ?, '', ?)
                         ON CONFLICT(source_file) DO UPDATE SET
-                          file_key=excluded.file_key,
-                          parser_version=excluded.parser_version,
-                          encoding=excluded.encoding
+                          file_key=excluded.file_key
                     """, (row["source_file"], row["file_key"], row["sha256"], row["parser_version"], row["encoding"]))
                     canonical_file_id = int(dst.execute(
                         "SELECT file_id FROM source_files WHERE source_file = ?",
@@ -172,7 +170,7 @@ def merge_domain_staging(domain_id: str, staging_db: Path, canonical_db: Path) -
 
                 for source_file in sorted(affected_source_files):
                     file_row = dst.execute(
-                        "SELECT file_id, sha256 FROM source_files WHERE source_file = ?",
+                        "SELECT file_id, sha256, parser_version, encoding FROM source_files WHERE source_file = ?",
                         (source_file,),
                     ).fetchone()
                     if file_row is None:
@@ -205,11 +203,16 @@ def merge_domain_staging(domain_id: str, staging_db: Path, canonical_db: Path) -
 
                     staged_file_id = next((sid for sid, cid in staging_to_canonical.items() if cid == canonical_file_id), None)
                     if staged_file_id is not None:
-                        staged_sha = src.execute(
-                            "SELECT sha256 FROM source_files WHERE file_id = ?",
+                        staged_source = src.execute(
+                            "SELECT sha256, parser_version, encoding FROM source_files WHERE file_id = ?",
                             (staged_file_id,),
-                        ).fetchone()["sha256"]
-                        if canonical_file_id in new_source_files or staged_sha != file_row["sha256"]:
+                        ).fetchone()
+                        payload_changed = (
+                            staged_source["sha256"] != file_row["sha256"]
+                            or staged_source["parser_version"] != file_row["parser_version"]
+                            or staged_source["encoding"] != file_row["encoding"]
+                        )
+                        if canonical_file_id in new_source_files or payload_changed:
                             _copy_staged_file_payload(src, dst, staged_file_id, canonical_file_id)
                             files_merged += 1
                             rows_merged += int(dst.execute(

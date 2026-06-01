@@ -156,6 +156,35 @@ def test_graph_metadata_includes_tabular_sidecar(tmp_path: Path) -> None:
     assert "sidecar_generation" in meta
 
 
+def test_build_uses_shared_serial_sidecar_when_file_locking_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    tab = repo / "data.tab"
+    tab.write_text("ID\tValue\n1\tA\n", encoding="utf-8")
+
+    manifest_path = _write_manifest(tmp_path, repo, [
+        {"path": "data.tab", "tabular_policy": "sidecar", "primary_key": "ID"},
+    ])
+    output_dir = tmp_path / "out"
+    monkeypatch.setattr("graphify.capabilities._has_file_locking", lambda: False)
+
+    _build_graph(tmp_path, repo, manifest_path, output_dir)
+
+    graph_json = json.loads((output_dir / "graph.json").read_text(encoding="utf-8"))
+    meta = graph_json["graph"]["tabular_sidecar"]
+    assert meta["sidecar_mode"] == "shared-serial"
+    assert "staging_run_id" not in meta
+    assert not (repo / "graphify-out" / "sidecar" / "staging").exists()
+
+    trace = json.loads((output_dir / ".graphify_state" / "build-trace.json").read_text(encoding="utf-8"))
+    assert trace["sidecar_mode"] == "shared-serial"
+    assert trace["sidecar"]["files_merged"] == 1
+    assert trace["sidecar"]["rows_merged"] == 1
+
+
 # ---------------------------------------------------------------------------
 # Test 5: --sidecar-db override puts DB at custom path with absolute hint
 # ---------------------------------------------------------------------------

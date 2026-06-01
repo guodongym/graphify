@@ -240,6 +240,44 @@ def test_merge_rejects_staging_with_older_parser_major_version(tmp_path):
         merge_domain_staging("skill-core", staging_v1, canonical_db)
 
 
+def test_merge_replaces_payload_when_parser_version_changes_without_content_change(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "skills.tab").write_text("ID\tName\n1\tAlpha\n", encoding="utf-8")
+    manifest = write_manifest(
+        tmp_path,
+        repo,
+        "skill-core",
+        [{"path": "skills.tab", "tabular_policy": "sidecar", "primary_key": "ID"}],
+    )
+    canonical_db = tmp_path / "canonical.sqlite"
+    staging_v1 = tmp_path / "v1.sqlite"
+    staging_v2 = tmp_path / "v2.sqlite"
+
+    write_staging_sidecar(staging_v1, manifest, run_id="run", attempt_id="v1")
+    merge_domain_staging("skill-core", staging_v1, canonical_db)
+
+    write_staging_sidecar(staging_v2, manifest, run_id="run", attempt_id="v2")
+    conn = connect_sidecar(staging_v2)
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE source_files SET parser_version = '2.0.0' WHERE source_file LIKE '%skills.tab'"
+            )
+            conn.execute(
+                "UPDATE rows SET row_json = ?, raw_line = ? WHERE row_no = 2",
+                (json.dumps({"ID": "1", "Name": "Beta"}), "1\tBeta\n"),
+            )
+    finally:
+        conn.close()
+
+    stats = merge_domain_staging("skill-core", staging_v2, canonical_db)
+
+    assert stats.files_merged == 1
+    rows = search_rows(canonical_db, domain_id="skill-core", column="ID", value="1")
+    assert rows[0]["row_json"]["Name"] == "Beta"
+
+
 def test_cleanup_staging_attempt_removes_only_requested_attempt(tmp_path):
     keep = tmp_path / "staging" / "run" / "keep.sqlite"
     remove = tmp_path / "staging" / "run" / "remove.sqlite"
