@@ -244,9 +244,7 @@ Graphify 应写出机器可读 trace：
   "process_workers": 8,
   "stages": {
     "code_extract_ms": 0,
-    "tabular_parse_ms": 0,
     "sidecar_stage_write_ms": 0,
-    "sidecar_merge_wait_ms": 0,
     "sidecar_merge_write_ms": 0,
     "sidecar_projection_ms": 0,
     "graph_build_ms": 0,
@@ -300,15 +298,20 @@ graphify capabilities --json
     "write_modes": ["shared-serial", "staging-merge"],
     "default_write_mode": "staging-merge",
     "supports_domain_staging_merge": true,
-    "supports_build_trace": true
+    "supports_build_trace": true,
+    "parallel_safe": true
   }
 }
 ```
 
+> **注意：以上是最终态（有文件锁的平台）。** 在无 `fcntl` 的平台（如 Windows）上，
+> `write_modes` 只包含 `["shared-serial"]`，`default_write_mode` 为 `"shared-serial"`，
+> `supports_domain_staging_merge` 和 `parallel_safe` 均为 `false`。
+
 wrapper 侧语义：
 
-- 如果 `write_modes` 包含 `staging-merge`，sidecar-active domains 可以并行调度。
-- 如果只包含 `shared-serial`，sidecar-active domains 应串行调度。
+- wrapper 必须同时满足 `supports_domain_staging_merge == true` **且** `parallel_safe == true` 才能开放 `--jobs N > 1`。
+- 如果任一为 `false`，sidecar-active domains 应串行调度。
 - sync report 记录 Graphify capability payload、`sidecar_mode` 和实际 jobs。
 
 这个 capability 是兼容契约，不是主要安全机制。主要安全机制仍是 Graphify staging/merge 写入模型。

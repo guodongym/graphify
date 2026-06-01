@@ -22,13 +22,34 @@ def test_capabilities_json_reports_tabular_sidecar_modes(tmp_path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["schema_version"] == 1
-    assert payload["tabular_sidecar"]["schema_version"] == 1
-    assert payload["tabular_sidecar"]["write_modes"] == ["shared-serial", "staging-merge"]
-    assert payload["tabular_sidecar"]["default_write_mode"] == "staging-merge"
-    assert payload["tabular_sidecar"]["supports_domain_staging_merge"] is True
-    assert payload["tabular_sidecar"]["supports_build_trace"] is True
-    assert "parallel_safe" in payload["tabular_sidecar"]
-    assert isinstance(payload["tabular_sidecar"]["parallel_safe"], bool)
+    ts = payload["tabular_sidecar"]
+    assert ts["schema_version"] == 1
+    assert ts["supports_build_trace"] is True
+    assert isinstance(ts["parallel_safe"], bool)
+    # On platforms with fcntl, staging-merge is available
+    if ts["parallel_safe"]:
+        assert ts["write_modes"] == ["shared-serial", "staging-merge"]
+        assert ts["default_write_mode"] == "staging-merge"
+        assert ts["supports_domain_staging_merge"] is True
+    else:
+        assert ts["write_modes"] == ["shared-serial"]
+        assert ts["default_write_mode"] == "shared-serial"
+        assert ts["supports_domain_staging_merge"] is False
+
+
+def test_capabilities_degrades_without_file_locking(tmp_path):
+    """When fcntl is unavailable, capabilities must not advertise staging-merge."""
+    from unittest.mock import patch
+    from graphify.capabilities import capabilities_payload
+
+    with patch("graphify.capabilities._has_file_locking", return_value=False):
+        payload = capabilities_payload()
+
+    ts = payload["tabular_sidecar"]
+    assert ts["write_modes"] == ["shared-serial"]
+    assert ts["default_write_mode"] == "shared-serial"
+    assert ts["supports_domain_staging_merge"] is False
+    assert ts["parallel_safe"] is False
 
 
 def test_capabilities_rejects_non_json_output_for_now(tmp_path):

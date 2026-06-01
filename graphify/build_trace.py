@@ -7,9 +7,7 @@ from pathlib import Path
 
 STAGE_KEYS = (
     "code_extract_ms",
-    "tabular_parse_ms",
     "sidecar_stage_write_ms",
-    "sidecar_merge_wait_ms",
     "sidecar_merge_write_ms",
     "sidecar_projection_ms",
     "graph_build_ms",

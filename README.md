@@ -557,7 +557,9 @@ the constrained read-only `query` debug/eval surface.
 Graphify writes sidecar-active manifest builds through `staging-merge`: each
 domain build first writes a disposable staging DB, then merges it into the
 canonical shared sidecar under a write lock. This makes parallel domain builds
-safe — wrappers can check support with `graphify capabilities --json`. Run only
+safe — wrappers should check `graphify capabilities --json` and only enable
+`--jobs N > 1` when both `supports_domain_staging_merge` and `parallel_safe` are
+`true` (platforms without file locking fall back to `shared-serial`). Run only
 one manifest build/update at a time for a given `--output-dir`; Graphify does not
 lock domain output directories. Manifest state lives in
 `<output-dir>/.graphify_state/update-state.json`; `files` mirrors
