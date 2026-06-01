@@ -106,6 +106,14 @@ graphify sidecar query --graph graphify-out/domains/skill/graph.json --sql "SELE
 `search` and `resolve` are the stable lookup APIs. `query` is intentionally a
 constrained read-only analysis/debug surface over scoped views.
 
+Since v0.x, manifest builds use **staging-merge** for sidecar writes: each domain
+build writes an isolated staging DB, then merges it into the canonical shared
+sidecar under a write-lock. This means multiple domain builds (from a wrapper
+like JX3) can run in parallel safely — each Graphify subprocess owns only its
+staging DB and acquires the canonical lock briefly during merge. Wrappers own
+multi-domain scheduling (`--jobs N`); Graphify exposes `graphify capabilities --json`
+so wrappers can detect staging-merge support before enabling parallelism.
+
 ---
 
 ## The graph format

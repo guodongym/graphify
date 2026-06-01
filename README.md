@@ -554,8 +554,12 @@ by default, or at `--sidecar-db PATH` when explicitly provided. The graph keeps
 file/table/column/anchor/path-ref skeleton nodes and `sidecar_ref` metadata,
 while full rows are resolved through `graphify sidecar search`, `resolve`, or
 the constrained read-only `query` debug/eval surface.
-Run only one manifest build/update at a time for a given `--output-dir`; Graphify
-does not lock domain output directories. Manifest state lives in
+Graphify writes sidecar-active manifest builds through `staging-merge`: each
+domain build first writes a disposable staging DB, then merges it into the
+canonical shared sidecar under a write lock. This makes parallel domain builds
+safe — wrappers can check support with `graphify capabilities --json`. Run only
+one manifest build/update at a time for a given `--output-dir`; Graphify does not
+lock domain output directories. Manifest state lives in
 `<output-dir>/.graphify_state/update-state.json`; `files` mirrors
 `current_files`, and `files_by_type` mirrors `current_files_by_type`, to keep
 older and explicit readers compatible.

@@ -225,6 +225,12 @@ def generate(
             lines.append(f"- sidecar instance ID: `{sidecar_stats['sidecar_instance_id']}`")
         if "generation" in sidecar_stats:
             lines.append(f"- generation: `{sidecar_stats['generation']}`")
+        if "sidecar_mode" in sidecar_stats:
+            lines.append(f"- sidecar mode: `{sidecar_stats['sidecar_mode']}`")
+        if "merge_generation_before" in sidecar_stats and "merge_generation_after" in sidecar_stats:
+            lines.append(
+                f"- merge generation: `{sidecar_stats['merge_generation_before']}` -> `{sidecar_stats['merge_generation_after']}`"
+            )
 
         # Current snapshot
         snapshot_parts = []

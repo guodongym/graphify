@@ -1,6 +1,7 @@
 # tests/test_tabular_sidecar_cli.py
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import sqlite3
 import subprocess
@@ -281,3 +282,131 @@ def test_manifest_build_accepts_sidecar_db_override(tmp_path):
     meta = graph["graph"]["tabular_sidecar"]
     assert meta["sidecar_db_hint"]["kind"] == "absolute"
     assert meta["sidecar_db_hint"]["path"] == str(sidecar_db.resolve())
+    assert meta["sidecar_mode"] == "staging-merge"
+    assert meta["staging_run_id"]
+    assert meta["staging_attempt_id"]
+    assert int(meta["sidecar_merge_generation_after"]) >= int(meta["sidecar_merge_generation_before"])
+    assert (sidecar_db.parent / "staging").exists()
+
+
+def test_manifest_build_writes_build_trace(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "skills.tab").write_text("SkillID\tName\n100\tKick\n", encoding="utf-8")
+    manifest = repo / "domain-files.json"
+    manifest.write_text(json.dumps({
+        "repo_root": str(repo),
+        "domain_id": "skill-core",
+        "files": [{
+            "path": "skills.tab",
+            "tabular_policy": "sidecar",
+            "primary_key": "SkillID",
+        }],
+    }), encoding="utf-8")
+    out = repo / "graphify-out" / "domains" / "skill-core"
+
+    build = run_graphify("extract", "--manifest", str(manifest), "--output-dir", str(out), cwd=repo)
+
+    assert build.returncode == 0, build.stderr
+    trace_path = out / ".graphify_state" / "build-trace.json"
+    assert trace_path.exists()
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert trace["sidecar_mode"] == "staging-merge"
+    assert trace["sidecar"]["files_staged"] == 1
+    assert trace["sidecar"]["files_merged"] == 1
+
+
+def test_manifest_build_writes_failed_trace_when_sidecar_merge_fails(tmp_path):
+    from graphify.tabular_sidecar import connect_sidecar, ensure_schema, ensure_sidecar_identity
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "skills.tab").write_text("SkillID\tName\n100\tKick\n", encoding="utf-8")
+    manifest = repo / "domain-files.json"
+    manifest.write_text(json.dumps({
+        "repo_root": str(repo),
+        "domain_id": "skill-core",
+        "files": [{
+            "path": "skills.tab",
+            "tabular_policy": "sidecar",
+            "primary_key": "SkillID",
+        }],
+    }), encoding="utf-8")
+    out = repo / "graphify-out" / "domains" / "skill-core"
+    wrong_repo_db = tmp_path / "wrong.sqlite"
+    other_repo = tmp_path / "other"
+    other_repo.mkdir()
+    conn = connect_sidecar(wrong_repo_db)
+    try:
+        ensure_schema(conn)
+        with conn:
+            ensure_sidecar_identity(conn, repo_root=other_repo, repo_key="other-repo-key")
+    finally:
+        conn.close()
+
+    build = run_graphify("extract", "--manifest", str(manifest), "--output-dir", str(out), "--sidecar-db", str(wrong_repo_db), cwd=repo)
+
+    assert build.returncode != 0
+    failed_trace = out / ".graphify_state" / "build-trace.failed.json"
+    assert failed_trace.exists()
+    payload = json.loads(failed_trace.read_text(encoding="utf-8"))
+    assert payload["sidecar_mode"] == "staging-merge"
+    assert payload["error"]["class"]
+
+
+def test_parallel_domain_builds_share_canonical_sidecar(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "shared.tab").write_text("ID\tName\tValue\n1\tAlpha\t100\n", encoding="utf-8")
+    domains = {
+        "domain-a": {"indexed_columns": ["Name"]},
+        "domain-b": {"indexed_columns": ["Value"]},
+    }
+    manifests = {}
+    for domain_id, cfg in domains.items():
+        manifest = repo / f"{domain_id}.json"
+        manifest.write_text(json.dumps({
+            "repo_root": str(repo),
+            "domain_id": domain_id,
+            "files": [{
+                "path": "shared.tab",
+                "tabular_policy": "sidecar",
+                "primary_key": "ID",
+                "indexed_columns": cfg["indexed_columns"],
+            }],
+        }), encoding="utf-8")
+        manifests[domain_id] = manifest
+
+    def build(domain_id: str):
+        return run_graphify(
+            "extract",
+            "--manifest", str(manifests[domain_id]),
+            "--output-dir", str(repo / "graphify-out" / "domains" / domain_id),
+            cwd=repo,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(build, sorted(domains)))
+
+    assert all(result.returncode == 0 for result in results), [result.stderr for result in results]
+    sidecar_db = repo / "graphify-out" / "sidecar" / "tabular.sqlite"
+    search_a = run_graphify(
+        "sidecar", "search",
+        "--db", str(sidecar_db),
+        "--domain", "domain-a",
+        "--column", "Name",
+        "--value", "Alpha",
+        cwd=repo,
+    )
+    search_b = run_graphify(
+        "sidecar", "search",
+        "--db", str(sidecar_db),
+        "--domain", "domain-b",
+        "--column", "Value",
+        "--value", "100",
+        cwd=repo,
+    )
+    assert search_a.returncode == 0, search_a.stderr
+    assert search_b.returncode == 0, search_b.stderr
+    assert json.loads(search_a.stdout)["rows"][0]["row_json"]["ID"] == "1"
+    assert json.loads(search_b.stdout)["rows"][0]["row_json"]["ID"] == "1"

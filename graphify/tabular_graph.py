@@ -38,9 +38,14 @@ def graph_sidecar_metadata(
     graphify_output: Path,
     db_path: Path,
     sidecar_meta: dict,
+    sidecar_mode: str = "shared-serial",
+    staging_run_id: str | None = None,
+    staging_attempt_id: str | None = None,
+    merge_generation_before: int | None = None,
+    merge_generation_after: int | None = None,
 ) -> dict:
     """Build the full metadata dict for ``graph.graph["tabular_sidecar"]``."""
-    return {
+    payload = {
         "domain_id": manifest.domain_id,
         "sidecar_domain_config_hash": manifest.sidecar_domain_config_hash,
         "sidecar_db_hint": sidecar_db_hint(repo_root=repo_root, graphify_output=graphify_output, db_path=db_path),
@@ -51,7 +56,17 @@ def graph_sidecar_metadata(
         "repo_key": repo_key,
         "repo_root": str(repo_root),
         "graphify_output": str(graphify_output.resolve()),
+        "sidecar_mode": sidecar_mode,
     }
+    if staging_run_id is not None:
+        payload["staging_run_id"] = staging_run_id
+    if staging_attempt_id is not None:
+        payload["staging_attempt_id"] = staging_attempt_id
+    if merge_generation_before is not None:
+        payload["sidecar_merge_generation_before"] = str(merge_generation_before)
+    if merge_generation_after is not None:
+        payload["sidecar_merge_generation_after"] = str(merge_generation_after)
+    return payload
 
 
 def sidecar_ref_key(repo_key: str, file_key: str, row_no: int, line_hash: str) -> str:

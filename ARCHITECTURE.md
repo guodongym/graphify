@@ -25,6 +25,7 @@ Each stage is a single function in its own module. They communicate through plai
 | `manifest.py` | `load_domain_manifest(...)` | caller-owned domain manifest → normalized file set |
 | `tabular.py` | tabular parser/profile helpers | `.tab`/`.tsv` file → headers, rows, profile, path-like refs |
 | `tabular_manifest.py` | `load_tabular_domain_manifest(...)` | domain manifest → effective graph/sidecar tabular policies |
+| `tabular_sidecar_paths.py` | `plan_sidecar_paths(...)` | domain + run/attempt → canonical & staging sidecar DB paths |
 | `tabular_sidecar.py` | sidecar store/query API | tabular manifest → shared SQLite DB; search/resolve/query rows |
 | `tabular_graph.py` | `merge_sidecar_projection(...)` | sidecar DB rows → graph table/column/anchor/path-ref skeleton |
 | `sidecar_cli.py` | `graphify sidecar ...` | CLI search/resolve/query over tabular sidecar DB |

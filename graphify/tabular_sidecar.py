@@ -143,6 +143,10 @@ def _set_meta(conn: sqlite3.Connection, key: str, value: object) -> None:
     )
 
 
+def set_sidecar_meta(conn: sqlite3.Connection, key: str, value: object) -> None:
+    _set_meta(conn, key, value)
+
+
 def _normalize_column_name(name: str) -> str:
     return name.strip()
 
@@ -1311,3 +1315,18 @@ def execute_readonly_query(
         conn.set_authorizer(None)
         conn.set_progress_handler(None, 0)
         conn.close()
+
+
+def sidecar_row_from_sql_row(row_data):
+    return row_from_sql_row(row_data)
+
+
+def insert_indexes_for_row(
+    conn: sqlite3.Connection,
+    file_id: int,
+    row_id: int,
+    domain_id: str,
+    file_cfg: TabularFileConfig,
+    row,
+) -> int:
+    return _insert_indexes(conn, file_id, row_id, domain_id, file_cfg, row)

@@ -255,38 +255,90 @@ def build_code_graph(
     sidecar_update_stats = None
     sidecar_meta = None
     effective_sidecar_db = None
+    trace = None
+    path_plan = None
+    merge_stats = None
+    run_id = None
+    attempt_id = None
     effective_graphify_output = (
         active_graphify_output if active_graphify_output is not None
         else (repo_root / "graphify-out")
     )
     if tabular_manifest is not None:
-        effective_sidecar_db = (
-            sidecar_db_path if sidecar_db_path is not None
-            else effective_graphify_output / "sidecar" / "tabular.sqlite"
+        from time import perf_counter
+        from uuid import uuid4
+
+        from graphify.build_trace import BuildTrace
+        from graphify.tabular_sidecar import read_sidecar_meta, read_sidecar_domain_config_hash
+        from graphify.tabular_sidecar_paths import plan_sidecar_paths
+        from graphify.tabular_sidecar_staging import merge_domain_staging, write_staging_sidecar
+
+        run_id = uuid4().hex
+        attempt_id = uuid4().hex
+        trace = BuildTrace(
+            domain_id=tabular_manifest.domain_id,
+            sidecar_mode="staging-merge",
+            process_workers=max_workers,
         )
+        path_plan = plan_sidecar_paths(
+            repo_root=repo_root,
+            active_graphify_output=effective_graphify_output,
+            sidecar_db_path=sidecar_db_path,
+            domain_id=tabular_manifest.domain_id,
+            run_id=run_id,
+            attempt_id=attempt_id,
+        )
+        effective_sidecar_db = path_plan.canonical_db
+
         should_update_sidecar = bool(tabular_manifest.sidecar_active_files)
         if not should_update_sidecar and effective_sidecar_db.exists():
-            from graphify.tabular_sidecar import read_sidecar_domain_config_hash
-
             should_update_sidecar = read_sidecar_domain_config_hash(
                 effective_sidecar_db,
                 tabular_manifest.domain_id,
             ) is not None
         if should_update_sidecar:
-            from graphify.tabular_sidecar import read_sidecar_meta, update_sidecar
-
-            effective_sidecar_db.parent.mkdir(parents=True, exist_ok=True)
-            sidecar_update_stats = update_sidecar(effective_sidecar_db, tabular_manifest)
-            sidecar_meta = read_sidecar_meta(effective_sidecar_db)
-            if has_sidecar_projection:
-                from graphify.tabular_graph import merge_sidecar_projection
-
-                merge_sidecar_projection(
-                    result,
+            try:
+                stage_start = perf_counter()
+                sidecar_update_stats = write_staging_sidecar(
+                    path_plan.staging_db,
                     tabular_manifest,
-                    effective_sidecar_db,
-                    effective_graphify_output,
+                    run_id=run_id,
+                    attempt_id=attempt_id,
                 )
+                trace.record_stage_ms("sidecar_stage_write_ms", int((perf_counter() - stage_start) * 1000))
+                trace.record_sidecar(
+                    files_staged=sidecar_update_stats.files_upserted,
+                    rows_staged=sidecar_update_stats.rows_upserted,
+                )
+                merge_start = perf_counter()
+                merge_stats = merge_domain_staging(tabular_manifest.domain_id, path_plan.staging_db, effective_sidecar_db)
+                trace.record_stage_ms("sidecar_merge_write_ms", int((perf_counter() - merge_start) * 1000))
+                trace.record_sidecar(
+                    files_merged=merge_stats.files_merged,
+                    rows_merged=merge_stats.rows_merged,
+                    files_pruned=merge_stats.files_pruned,
+                    rows_pruned=merge_stats.rows_pruned,
+                    indexed_values_merged=merge_stats.indexes_merged,
+                    refs_merged=merge_stats.refs_merged,
+                )
+                sidecar_meta = read_sidecar_meta(effective_sidecar_db)
+                if has_sidecar_projection:
+                    from graphify.tabular_graph import merge_sidecar_projection
+
+                    merge_sidecar_projection(
+                        result,
+                        tabular_manifest,
+                        effective_sidecar_db,
+                        effective_graphify_output,
+                    )
+            except Exception as exc:
+                if trace is not None:
+                    trace.write_failed(output_dir, error_class=exc.__class__.__name__, error_message=str(exc))
+                raise
+            finally:
+                if path_plan is not None:
+                    from graphify.tabular_sidecar_staging import cleanup_staging_attempt
+                    cleanup_staging_attempt(path_plan.staging_db)
 
     # --- Post-extract cleanup on merged result ---
     redirected_tab_stub_ids = _redirect_tab_reference_edges(
@@ -317,6 +369,11 @@ def build_code_graph(
             graphify_output=effective_graphify_output,
             db_path=effective_sidecar_db,
             sidecar_meta=sidecar_meta,
+            sidecar_mode="staging-merge",
+            staging_run_id=run_id if merge_stats is not None else None,
+            staging_attempt_id=attempt_id if merge_stats is not None else None,
+            merge_generation_before=merge_stats.generation_before if merge_stats is not None else None,
+            merge_generation_after=merge_stats.generation_after if merge_stats is not None else None,
         )
 
     # --- Empty-graph check AFTER sidecar merge ---
@@ -381,6 +438,11 @@ def build_code_graph(
         sidecar_stats_dict["files_rebuilt"] = sidecar_update_stats.files_upserted
         sidecar_stats_dict["rows_rebuilt"] = sidecar_update_stats.rows_upserted
         sidecar_stats_dict["rows_pruned"] = sidecar_update_stats.rows_pruned
+
+        if merge_stats is not None:
+            sidecar_stats_dict["sidecar_mode"] = "staging-merge"
+            sidecar_stats_dict["merge_generation_before"] = merge_stats.generation_before
+            sidecar_stats_dict["merge_generation_after"] = merge_stats.generation_after
 
     report_text = generate(
         graph,
@@ -470,6 +532,9 @@ def build_code_graph(
         graph_tmp.unlink(missing_ok=True)
         for tmp_path, _final_path in staged:
             tmp_path.unlink(missing_ok=True)
+
+    if trace is not None:
+        trace.write_success(output_dir)
 
     try:
         to_html(graph, communities, str(output_dir / "graph.html"), community_labels=labels or None)

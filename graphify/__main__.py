@@ -1839,6 +1839,7 @@ def main() -> None:
         print("  global path              print path to the global graph file")
         print("  sidecar search|resolve|query")
         print("                            inspect tabular sidecar rows from graph-aware metadata")
+        print("  capabilities --json  print machine-readable Graphify capabilities")
         print("  benchmark [graph.json]  measure token reduction vs naive full-corpus approach")
         print("  export callflow-html    emit Mermaid-based architecture/call-flow HTML")
         print("  hook install            install post-commit/post-checkout git hooks (all platforms)")
@@ -1903,6 +1904,15 @@ def main() -> None:
             sys.exit(_sidecar_main(sys.argv[2:]))
         print(f"Run 'graphify --help' for full usage.")
         return
+
+    if cmd == "capabilities":
+        if sys.argv[2:] != ["--json"]:
+            print("Usage: graphify capabilities --json", file=sys.stderr)
+            sys.exit(2)
+        from graphify.capabilities import capabilities_json
+
+        print(capabilities_json(), end="")
+        sys.exit(0)
 
     if cmd == "install":
         # Default to windows platform on Windows, claude elsewhere
