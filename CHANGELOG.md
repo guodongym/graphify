@@ -2,6 +2,10 @@
 
 Full release notes with details on each version: [GitHub Releases](https://github.com/safishamsi/graphify/releases)
 
+## 0.8.24+hanhai.0.4.4 (2026-06-04)
+
+- Fix: add file-id indexes for sidecar indexed-value and path-ref tables to keep staging merge cleanup and payload replacement queries on indexed lookup paths.
+
 ## 0.8.24+hanhai.0.4.3 (2026-06-01)
 
 - Feat: add parallel-safe tabular sidecar staging/merge writes with build-trace and capabilities reporting for manifest-scoped domain builds.
