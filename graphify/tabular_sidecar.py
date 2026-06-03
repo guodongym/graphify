@@ -384,7 +384,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_rows_file ON rows(file_id);
     CREATE INDEX IF NOT EXISTS idx_indexed_lookup ON indexed_values(domain_id, normalized_column_name, value_norm);
     CREATE INDEX IF NOT EXISTS idx_indexed_column_lookup ON indexed_values(domain_id, normalized_column_name, column_index, value_norm);
+    CREATE INDEX IF NOT EXISTS idx_indexed_file ON indexed_values(file_id);
     CREATE INDEX IF NOT EXISTS idx_indexed_row ON indexed_values(row_id);
+    CREATE INDEX IF NOT EXISTS idx_refs_file ON tabular_refs(file_id);
     CREATE INDEX IF NOT EXISTS idx_refs_row ON tabular_refs(row_id);
     """)
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)", (str(SCHEMA_VERSION),))

@@ -59,6 +59,42 @@ def test_schema_creation_and_fk_enforcement(tmp_path):
         conn.close()
 
 
+def test_schema_indexes_file_id_for_merge_hot_paths(tmp_path):
+    db_path = tmp_path / "sidecar.db"
+    conn = connect_sidecar(db_path)
+    try:
+        ensure_schema(conn)
+        indexed_indexes = {
+            row["name"]
+            for row in conn.execute("PRAGMA index_list('indexed_values')").fetchall()
+        }
+        refs_indexes = {
+            row["name"]
+            for row in conn.execute("PRAGMA index_list('tabular_refs')").fetchall()
+        }
+
+        assert "idx_indexed_file" in indexed_indexes
+        assert "idx_refs_file" in refs_indexes
+
+        indexed_plan = "\n".join(
+            row["detail"]
+            for row in conn.execute(
+                "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM indexed_values WHERE file_id = 1"
+            ).fetchall()
+        )
+        refs_plan = "\n".join(
+            row["detail"]
+            for row in conn.execute(
+                "EXPLAIN QUERY PLAN SELECT * FROM tabular_refs WHERE file_id = 1"
+            ).fetchall()
+        )
+
+        assert "idx_indexed_file" in indexed_plan
+        assert "idx_refs_file" in refs_plan
+    finally:
+        conn.close()
+
+
 def test_update_sidecar_writes_rows_indexes_and_refs(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
