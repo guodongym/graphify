@@ -2,6 +2,10 @@
 
 Full release notes with details on each version: [GitHub Releases](https://github.com/safishamsi/graphify/releases)
 
+## 0.8.24+hanhai.0.4.5 (2026-06-04)
+
+- Fix: allow explicit large-graph caps for `graphify query` via `--max-graph-bytes` or `GRAPHIFY_MAX_GRAPH_FILE_BYTES`, while keeping the default 512MiB guard.
+
 ## 0.8.24+hanhai.0.4.4 (2026-06-04)
 
 - Fix: add file-id indexes for sidecar indexed-value and path-ref tables to keep staging merge cleanup and payload replacement queries on indexed lookup paths.
