@@ -331,6 +331,7 @@ MCP server 会给你的助手提供结构化访问能力：`query_graph`、`get_
 | `AWS_*` / `~/.aws/credentials` | AWS Bedrock，标准 credential chain | `--backend bedrock`（无需 API key，使用 IAM） |
 | `GRAPHIFY_MAX_WORKERS` | AST 并行线程数 | 可选，也可用 `--max-workers` flag |
 | `GRAPHIFY_MAX_OUTPUT_TOKENS` | 为密集语料提高输出上限 | 可选，例如大型文件用 `32768` |
+| `GRAPHIFY_MAX_GRAPH_FILE_BYTES` | 显式允许 `graphify query` 加载超大 `graph.json` | 可选；默认 `512m`，支持 bytes 或 `k`/`m`/`g`，例如 `2g` |
 | `GRAPHIFY_API_TIMEOUT` | HTTP 超时时间，单位秒（默认 600） | 可选，也可用 `--api-timeout` flag |
 | `GRAPHIFY_FORCE` | 即使节点更少也强制重建图谱 | 可选，也可用 `--force` flag |
 | `GRAPHIFY_GOOGLE_WORKSPACE` | 自动启用 Google Workspace 导出 | 可选，设为 `1` |
@@ -443,6 +444,7 @@ graphify install  # 覆盖 skill 文件
 
 /graphify query "what connects attention to the optimizer?"
 /graphify query "..." --dfs --budget 1500
+/graphify query "..." --graph graphify-out/domains/big/graph.json --max-graph-bytes 2g
 /graphify path "DigestAuth" "Response"
 /graphify explain "SwinTransformer"
 

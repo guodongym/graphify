@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import graphify.security as security
 from graphify.security import (
     check_graph_file_size_cap,
     sanitize_label,
@@ -223,10 +224,41 @@ def test_graph_size_cap_default_is_512_mib():
     assert _MAX_GRAPH_FILE_BYTES == 512 * 1024 * 1024
 
 
+def test_parse_graph_file_size_cap_accepts_unit_suffixes():
+    assert security.parse_graph_file_size_cap("512m") == 512 * 1024 * 1024
+    assert security.parse_graph_file_size_cap("2g") == 2 * 1024 * 1024 * 1024
+    assert security.parse_graph_file_size_cap("2048") == 2048
+
+
+def test_parse_graph_file_size_cap_rejects_invalid_values():
+    with pytest.raises(ValueError, match="GRAPHIFY_MAX_GRAPH_FILE_BYTES"):
+        security.parse_graph_file_size_cap("many")
+    with pytest.raises(ValueError, match="positive"):
+        security.parse_graph_file_size_cap("0")
+
+
 def test_graph_size_cap_under_limit_returns_none(tmp_path):
     p = tmp_path / "graph.json"
     p.write_text('{"nodes": [], "links": []}', encoding="utf-8")
     assert check_graph_file_size_cap(p) is None
+
+
+def test_graph_size_cap_uses_env_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("GRAPHIFY_MAX_GRAPH_FILE_BYTES", "1k")
+    p = tmp_path / "graph.json"
+    p.write_text("A" * 1500, encoding="utf-8")
+
+    with pytest.raises(ValueError) as excinfo:
+        check_graph_file_size_cap(p)
+
+    assert "1_024-byte cap" in str(excinfo.value)
+
+
+def test_graph_size_cap_accepts_explicit_override(tmp_path):
+    p = tmp_path / "graph.json"
+    p.write_text("A" * 1500, encoding="utf-8")
+
+    assert check_graph_file_size_cap(p, max_bytes=2048) is None
 
 
 def test_graph_size_cap_over_limit_raises(monkeypatch, tmp_path):

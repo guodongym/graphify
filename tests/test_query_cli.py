@@ -68,3 +68,40 @@ def test_query_cli_rejects_oversized_graph(monkeypatch, tmp_path, capsys):
     err = capsys.readouterr().err
     assert "exceeds" in err
     assert "byte cap" in err
+
+
+def test_query_cli_accepts_explicit_graph_size_cap(monkeypatch, tmp_path, capsys):
+    graph_path = _write_graph(tmp_path)
+    monkeypatch.setattr(mainmod, "_check_skill_version", lambda _: None)
+    monkeypatch.setattr("graphify.security._MAX_GRAPH_FILE_BYTES", 16)
+    monkeypatch.setattr(
+        mainmod.sys,
+        "argv",
+        [
+            "graphify",
+            "query",
+            "extract",
+            "--graph",
+            str(graph_path),
+            "--max-graph-bytes",
+            "1k",
+        ],
+    )
+
+    mainmod.main()
+
+    out = capsys.readouterr().out
+    assert "Traversal:" in out
+
+
+def test_query_cli_usage_lists_large_graph_cap(monkeypatch, capsys):
+    import pytest
+
+    monkeypatch.setattr(mainmod, "_check_skill_version", lambda _: None)
+    monkeypatch.setattr(mainmod.sys, "argv", ["graphify", "query"])
+
+    with pytest.raises(SystemExit):
+        mainmod.main()
+
+    err = capsys.readouterr().err
+    assert "--max-graph-bytes N" in err

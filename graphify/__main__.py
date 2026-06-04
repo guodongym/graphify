@@ -23,7 +23,7 @@ def _default_graph_path() -> str:
     return str(Path(_GRAPHIFY_OUT) / "graph.json")
 
 
-def _enforce_graph_size_cap_or_exit(gp: Path) -> None:
+def _enforce_graph_size_cap_or_exit(gp: Path, *, max_bytes: int | None = None) -> None:
     """Reject oversized graph files before parsing (CLI exit-on-fail flavor).
 
     Delegates to ``graphify.security.check_graph_file_size_cap`` and turns the
@@ -36,7 +36,7 @@ def _enforce_graph_size_cap_or_exit(gp: Path) -> None:
     """
     from graphify.security import check_graph_file_size_cap
     try:
-        check_graph_file_size_cap(gp)
+        check_graph_file_size_cap(gp, max_bytes=max_bytes)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -2139,15 +2139,20 @@ def main() -> None:
             sys.exit(1)
     elif cmd == "query":
         if len(sys.argv) < 3:
-            print("Usage: graphify query \"<question>\" [--dfs] [--context C] [--budget N] [--graph path]", file=sys.stderr)
+            print(
+                "Usage: graphify query \"<question>\" [--dfs] [--context C] "
+                "[--budget N] [--graph path] [--max-graph-bytes N]",
+                file=sys.stderr,
+            )
             sys.exit(1)
         from graphify.serve import _query_graph_text
-        from graphify.security import sanitize_label
+        from graphify.security import parse_graph_file_size_cap, sanitize_label
         from networkx.readwrite import json_graph
         question = sys.argv[2]
         use_dfs = "--dfs" in sys.argv
         budget = 2000
         graph_path = _default_graph_path()
+        max_graph_bytes: int | None = None
         context_filters: list[str] = []
         args = sys.argv[3:]
         i = 0
@@ -2174,6 +2179,26 @@ def main() -> None:
                 i += 1
             elif args[i] == "--graph" and i + 1 < len(args):
                 graph_path = args[i + 1]; i += 2
+            elif args[i] == "--max-graph-bytes" and i + 1 < len(args):
+                try:
+                    max_graph_bytes = parse_graph_file_size_cap(
+                        args[i + 1],
+                        option_name="--max-graph-bytes",
+                    )
+                except ValueError as exc:
+                    print(f"error: {exc}", file=sys.stderr)
+                    sys.exit(1)
+                i += 2
+            elif args[i].startswith("--max-graph-bytes="):
+                try:
+                    max_graph_bytes = parse_graph_file_size_cap(
+                        args[i].split("=", 1)[1],
+                        option_name="--max-graph-bytes",
+                    )
+                except ValueError as exc:
+                    print(f"error: {exc}", file=sys.stderr)
+                    sys.exit(1)
+                i += 1
             else:
                 i += 1
         gp = Path(graph_path).resolve()
@@ -2183,7 +2208,7 @@ def main() -> None:
         if not gp.suffix == ".json":
             print(f"error: graph file must be a .json file", file=sys.stderr)
             sys.exit(1)
-        _enforce_graph_size_cap_or_exit(gp)
+        _enforce_graph_size_cap_or_exit(gp, max_bytes=max_graph_bytes)
         try:
             import json as _json
             import networkx as _nx

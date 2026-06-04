@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import html
+import os
 import re
 import urllib.error
 import urllib.parse
@@ -23,6 +24,16 @@ _MAX_TEXT_BYTES  = 10_485_760   # 10 MB hard cap for HTML / text
 # specifically crafted) graph.json can exhaust process memory during
 # json.loads + node_link_graph rehydration.
 _MAX_GRAPH_FILE_BYTES = 512 * 1024 * 1024   # 512 MiB
+_GRAPH_FILE_SIZE_SUFFIXES = {
+    "": 1,
+    "b": 1,
+    "k": 1024,
+    "kb": 1024,
+    "m": 1024 * 1024,
+    "mb": 1024 * 1024,
+    "g": 1024 * 1024 * 1024,
+    "gb": 1024 * 1024 * 1024,
+}
 
 # AWS metadata, link-local, and common cloud metadata endpoints
 _BLOCKED_HOSTS = {"metadata.google.internal", "metadata.google.com"}
@@ -236,7 +247,33 @@ def validate_graph_path(path: str | Path, base: Path | None = None) -> Path:
     return resolved
 
 
-def check_graph_file_size_cap(path: Path) -> None:
+def parse_graph_file_size_cap(value: str, *, option_name: str = "GRAPHIFY_MAX_GRAPH_FILE_BYTES") -> int:
+    """Parse a graph file byte cap such as ``512m``, ``2g``, or ``2147483648``."""
+    text = str(value).strip().lower().replace("_", "")
+    match = re.fullmatch(r"([0-9]+)\s*([a-z]*)", text)
+    if match is None or match.group(2) not in _GRAPH_FILE_SIZE_SUFFIXES:
+        raise ValueError(
+            f"{option_name} must be a positive byte count, optionally suffixed "
+            "with k, m, or g"
+        )
+    size = int(match.group(1)) * _GRAPH_FILE_SIZE_SUFFIXES[match.group(2)]
+    if size <= 0:
+        raise ValueError(f"{option_name} must be positive")
+    return size
+
+
+def _effective_graph_file_size_cap(max_bytes: int | None = None) -> int:
+    if max_bytes is not None:
+        if max_bytes <= 0:
+            raise ValueError("graph file size cap must be positive")
+        return max_bytes
+    env_value = os.environ.get("GRAPHIFY_MAX_GRAPH_FILE_BYTES")
+    if env_value:
+        return parse_graph_file_size_cap(env_value)
+    return _MAX_GRAPH_FILE_BYTES
+
+
+def check_graph_file_size_cap(path: Path, *, max_bytes: int | None = None) -> None:
     """Reject *path* if its size exceeds ``_MAX_GRAPH_FILE_BYTES``.
 
     Protects callers from memory bombs by failing fast before a multi-GiB
@@ -252,10 +289,11 @@ def check_graph_file_size_cap(path: Path) -> None:
         size = path.stat().st_size
     except OSError:
         return
-    if size > _MAX_GRAPH_FILE_BYTES:
+    cap = _effective_graph_file_size_cap(max_bytes)
+    if size > cap:
         raise ValueError(
             f"graph file {path} is {size:_d} bytes, "
-            f"exceeds {_MAX_GRAPH_FILE_BYTES:_d}-byte cap"
+            f"exceeds {cap:_d}-byte cap"
         )
 
 
